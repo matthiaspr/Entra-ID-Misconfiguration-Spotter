@@ -10,12 +10,27 @@ uv sync
 
 ## Usage
 
+### Authentication
+
+You can provide credentials via CLI flags or environment variables (flags take precedence):
+
+**CLI flags:**
 ```bash
-# Set credentials
+uv run entra-spotter -t <tenant-id> -c <client-id> -s <client-secret>
+```
+
+**Environment variables:**
+```bash
 export AZURE_TENANT_ID="your-tenant-id"
 export AZURE_CLIENT_ID="your-client-id"
 export AZURE_CLIENT_SECRET="your-client-secret"
 
+uv run entra-spotter
+```
+
+### Running Checks
+
+```bash
 # Run all checks
 uv run entra-spotter
 
