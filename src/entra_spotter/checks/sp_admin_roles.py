@@ -3,6 +3,7 @@
 from msgraph import GraphServiceClient
 
 from entra_spotter.checks import CheckResult
+from entra_spotter.graph import run_sync
 
 # Role template IDs for privileged roles
 # https://learn.microsoft.com/en-us/entra/identity/role-based-access-control/permissions-reference
@@ -24,7 +25,7 @@ def check_sp_admin_roles(client: GraphServiceClient) -> CheckResult:
     Warning: One or more service principals found in privileged roles
     """
     # Get all activated directory roles
-    roles_response = client.directory_roles.get()
+    roles_response = run_sync(client.directory_roles.get())
     roles = roles_response.value or []
 
     findings: list[dict] = []
@@ -37,7 +38,9 @@ def check_sp_admin_roles(client: GraphServiceClient) -> CheckResult:
         role_name = PRIVILEGED_ROLE_TEMPLATES[role.role_template_id]
 
         # Get members of this role
-        members_response = client.directory_roles.by_directory_role_id(role.id).members.get()
+        members_response = run_sync(
+            client.directory_roles.by_directory_role_id(role.id).members.get()
+        )
         members = members_response.value or []
 
         for member in members:

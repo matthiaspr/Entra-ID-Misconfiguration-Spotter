@@ -3,6 +3,7 @@
 from msgraph import GraphServiceClient
 
 from entra_spotter.checks import CheckResult
+from entra_spotter.graph import run_sync
 
 
 def check_user_consent(client: GraphServiceClient) -> CheckResult:
@@ -14,7 +15,7 @@ def check_user_consent(client: GraphServiceClient) -> CheckResult:
     Pass: Empty array (users cannot consent)
     Fail: Contains any consent policy (users can consent)
     """
-    response = client.policies.authorization_policy.get()
+    response = run_sync(client.policies.authorization_policy.get())
 
     policies = (
         response.default_user_role_permissions.permission_grant_policies_assigned or []

@@ -3,6 +3,7 @@
 from msgraph import GraphServiceClient
 
 from entra_spotter.checks import CheckResult
+from entra_spotter.graph import run_sync
 
 # Sensitive MS Graph app role IDs
 # These roles allow privilege escalation if compromised
@@ -28,9 +29,11 @@ def check_sp_graph_roles(client: GraphServiceClient) -> CheckResult:
     Warning: One or more service principals have sensitive roles
     """
     # Get all service principals with their app role assignments
-    response = client.service_principals.get(
-        request_configuration=lambda config: setattr(
-            config.query_parameters, "expand", ["appRoleAssignments"]
+    response = run_sync(
+        client.service_principals.get(
+            request_configuration=lambda config: setattr(
+                config.query_parameters, "expand", ["appRoleAssignments"]
+            )
         )
     )
 
