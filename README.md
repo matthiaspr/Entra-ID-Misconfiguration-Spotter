@@ -4,9 +4,18 @@ A lightweight CLI tool that audits Microsoft Entra ID for security misconfigurat
 
 ## Installation
 
+Requires [uv](https://docs.astral.sh/uv/) and Python 3.10+.
+
 ```bash
+# Clone and enter the repository
+git clone <repository-url>
+cd Entra-ID-Misconfiguration-Spotter
+
+# Install dependencies (run once, or after pyproject.toml changes)
 uv sync
 ```
+
+All `uv run` commands below should be run from this directory.
 
 ## Usage
 
