@@ -122,3 +122,4 @@ Both are read-only. The tool never modifies any Entra ID configuration.
 - Type hints everywhere
 - Keep it simple - this is a small internal tool
 - Prefer functions over classes where practical
+- **Avoid over-engineering**: No abstract base classes, auto-discovery, plugin systems, or unnecessary abstractions. If a simple list or function works, use that. Add complexity only when there's a clear, immediate need - not for hypothetical future requirements. The tool should remain professional and well-structured, but lean.
