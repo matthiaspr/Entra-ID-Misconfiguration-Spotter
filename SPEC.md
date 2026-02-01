@@ -377,13 +377,14 @@ ALL_CHECKS: list[Check] = [
 |---|---|
 | **API** | `GET /servicePrincipals?$expand=appRoleAssignments` |
 | **Permission** | `Application.Read.All` |
-| **Sensitive Roles** | `RoleManagement.ReadWrite.Directory`, `AppRoleAssignment.ReadWrite.All` |
+| **Sensitive Roles** | `RoleManagement.ReadWrite.Directory`, `AppRoleAssignment.ReadWrite.All`, `UserAuthenticationMethod.ReadWrite.All` |
 | **PASS** | No service principals have these sensitive app roles |
 | **WARN** | One or more service principals have sensitive app roles |
 
 These roles are dangerous because they allow privilege escalation:
 - **RoleManagement.ReadWrite.Directory**: Can assign any directory role (including Global Admin)
 - **AppRoleAssignment.ReadWrite.All**: Can grant any app role to any service principal
+- **UserAuthenticationMethod.ReadWrite.All**: Can generate a Temporary Access Pass (TAP) to take over any user account
 
 ---
 

@@ -313,6 +313,25 @@ class TestServicePrincipalGraphRoles:
         assert result.status == "warning"
         assert result.details["service_principals"][0]["app_role"] == "AppRoleAssignment.ReadWrite.All"
 
+    def test_warning_when_sp_has_user_auth_method_role(self, mock_graph_client):
+        """Should warn when SP has UserAuthenticationMethod.ReadWrite.All."""
+        mock_graph_client.service_principals.get.return_value = MockServicePrincipalsResponse([
+            MockServicePrincipal(
+                id="sp-1",
+                display_name="Auth Method App",
+                app_role_assignments=[
+                    MockAppRoleAssignment(
+                        app_role_id="50483e42-d915-4231-9639-7fdb7fd190e5",  # UserAuthenticationMethod.ReadWrite.All
+                    ),
+                ],
+            )
+        ])
+
+        result = check_sp_graph_roles(mock_graph_client)
+
+        assert result.status == "warning"
+        assert result.details["service_principals"][0]["app_role"] == "UserAuthenticationMethod.ReadWrite.All"
+
     def test_warning_with_multiple_sps_and_roles(self, mock_graph_client):
         """Should warn and list all SPs with sensitive roles."""
         mock_graph_client.service_principals.get.return_value = MockServicePrincipalsResponse([

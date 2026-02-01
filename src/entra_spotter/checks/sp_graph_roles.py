@@ -9,6 +9,7 @@ from entra_spotter.checks import CheckResult
 SENSITIVE_APP_ROLES = {
     "9e3f62cf-ca93-4989-b6ce-bf83c28f9fe8": "RoleManagement.ReadWrite.Directory",
     "06b708a9-e830-4db3-a914-8e69da51d44f": "AppRoleAssignment.ReadWrite.All",
+    "50483e42-d915-4231-9639-7fdb7fd190e5": "UserAuthenticationMethod.ReadWrite.All",
 }
 
 # Microsoft Graph service principal app ID (same across all tenants)
@@ -21,6 +22,7 @@ def check_sp_graph_roles(client: GraphServiceClient) -> CheckResult:
     These roles are dangerous because they allow privilege escalation:
     - RoleManagement.ReadWrite.Directory: Can assign any directory role
     - AppRoleAssignment.ReadWrite.All: Can grant any app role to any SP
+    - UserAuthenticationMethod.ReadWrite.All: Can generate TAP to take over any user
 
     Pass: No service principals have these sensitive roles
     Warning: One or more service principals have sensitive roles
