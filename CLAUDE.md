@@ -17,49 +17,48 @@ uv run entra-spotter
 
 # Run tests
 uv run pytest
-
-# Run specific test
-uv run pytest tests/test_checks/test_user_consent.py
 ```
 
 ## Architecture
 
 ### Key Files
 
-- `src/entra_spotter/cli.py` - CLI entry point using Click
-- `src/entra_spotter/auth.py` - MS Graph authentication (service principal + client secret)
-- `src/entra_spotter/config.py` - Configuration from env vars and CLI flags
-- `src/entra_spotter/runner.py` - Orchestrates check execution
-- `src/entra_spotter/output.py` - Text and JSON output formatters
-- `src/entra_spotter/models.py` - Data classes (CheckResult, etc.)
-- `src/entra_spotter/checks/base.py` - BaseCheck abstract class
-- `src/entra_spotter/checks/__init__.py` - Auto-discovers checks
+- `src/entra_spotter/__init__.py` - Version
+- `src/entra_spotter/cli.py` - CLI entry point, config, runner, output formatting
+- `src/entra_spotter/graph.py` - MS Graph authentication and client setup
+- `src/entra_spotter/checks/__init__.py` - CheckResult, Check dataclass, ALL_CHECKS registry
+- `src/entra_spotter/checks/*.py` - Individual check implementations
 
 ### Check Pattern
 
-All checks inherit from `BaseCheck` and implement `run()`:
+Checks are simple functions that return a `CheckResult`:
 
 ```python
-from entra_spotter.checks.base import BaseCheck, CheckResult
+from msgraph import GraphServiceClient
+from entra_spotter.checks import CheckResult
 
-class MyCheck(BaseCheck):
-    id = "my-check"
-    name = "My Check"
-    description = "What this check does"
-    permissions = ["Permission.Read.All"]
+def check_my_thing(client: GraphServiceClient) -> CheckResult:
+    # Call Graph API
+    response = client.some.endpoint.get()
 
-    def run(self, graph_client) -> CheckResult:
-        # API calls and logic here
+    # Analyze and return result
+    if condition_met:
         return CheckResult(
-            check_id=self.id,
-            status="pass",  # "pass", "fail", or "warning"
-            message="Result message",
-            recommendation=None,  # Optional
-            details={}  # Optional dict with extra context
+            check_id="my-thing",
+            status="pass",
+            message="Everything looks good.",
         )
+
+    return CheckResult(
+        check_id="my-thing",
+        status="fail",
+        message="Something is misconfigured.",
+        recommendation="Do X to fix it.",
+        details={"key": "value"},
+    )
 ```
 
-Checks are auto-discovered from the `checks/` directory.
+Checks are explicitly registered in `checks/__init__.py` (no auto-discovery).
 
 ## Current Checks
 
@@ -75,7 +74,8 @@ Checks are auto-discovered from the `checks/` directory.
 2. **uv for packaging** - Fast, modern Python tooling
 3. **No .env file support** - Use actual environment variables
 4. **Check IDs for CLI** - Use `--check user-consent` not `--check "User Consent Settings"`
-5. **Auto-discovery** - New checks just need to be added to `checks/` directory
+5. **Explicit registration** - Checks are added to `ALL_CHECKS` list manually (no magic)
+6. **Function-based checks** - Simple functions, not classes with inheritance
 
 ## Environment Variables
 
@@ -94,27 +94,31 @@ Both are read-only. The tool never modifies any Entra ID configuration.
 
 ## Testing
 
-- Mock all MS Graph API calls
+- Mock `GraphServiceClient` in tests
 - No integration tests requiring real tenants
-- Test fixtures go in `tests/fixtures/`
+- Shared fixtures in `tests/conftest.py`
 - Use `pytest-mock` for mocking
 
 ## Exit Codes
 
 - `0` - All checks passed
 - `1` - One or more checks failed or warned
-- `2` - Error (auth failure, API error, bad config)
+- `2` - Error (auth failure, API error, bad config, or check raised exception)
+
+## Error Handling
+
+- Per-check exceptions are caught, marked as `error` status, and remaining checks continue
+- Fatal errors (auth failure, missing config) exit immediately with code `2`
 
 ## Adding a New Check
 
-1. Create `src/entra_spotter/checks/my_new_check.py`
-2. Inherit from `BaseCheck`, implement `run()`
-3. Add tests in `tests/test_checks/test_my_new_check.py`
-4. Update `SPEC.md` with check documentation
-5. If new permissions needed, document in SPEC.md
+1. Create `src/entra_spotter/checks/my_new_check.py` with a function returning `CheckResult`
+2. Register in `checks/__init__.py` by adding to `ALL_CHECKS` list
+3. Add tests in `tests/test_checks.py`
+4. Update `SPEC.md` if new MS Graph permissions are required
 
 ## Code Style
 
 - Type hints everywhere
-- Docstrings for public methods
 - Keep it simple - this is a small internal tool
+- Prefer functions over classes where practical

@@ -17,7 +17,7 @@ A lightweight CLI tool that audits Microsoft Entra ID for common security miscon
 | Component | Choice | Rationale |
 |-----------|--------|-----------|
 | Language | Python 3.10+ | Maintainability, good Graph SDK |
-| Package Manager | `uv` | Fast, modern, replaces pip/venv |
+| Package Manager | `uv` | Fast, modern Python tooling |
 | MS Graph | `msgraph-sdk` | Official Microsoft SDK |
 | CLI Framework | `click` | Simple, well-documented |
 | HTTP Auth | `azure-identity` | Standard Azure auth library |
@@ -28,32 +28,28 @@ A lightweight CLI tool that audits Microsoft Entra ID for common security miscon
 
 ```
 entra-id-spotter/
-├── pyproject.toml          # Project config, dependencies (uv)
-├── uv.lock                  # Lock file
+├── pyproject.toml
+├── uv.lock
 ├── README.md
 ├── src/
 │   └── entra_spotter/
-│       ├── __init__.py     # Version
-│       ├── cli.py          # CLI entry point
-│       ├── auth.py         # MS Graph authentication
-│       ├── config.py       # Configuration from env/flags
-│       ├── runner.py       # Executes checks, collects results
-│       ├── output.py       # Text/JSON formatters
-│       ├── models.py       # Result dataclasses
+│       ├── __init__.py         # Version
+│       ├── cli.py              # CLI entry point, config, runner, output
+│       ├── graph.py            # MS Graph authentication and client
 │       └── checks/
-│           ├── __init__.py # Check registry & auto-discovery
-│           ├── base.py     # BaseCheck abstract class
+│           ├── __init__.py     # CheckResult, Check dataclass, ALL_CHECKS registry
 │           ├── user_consent.py
 │           ├── admin_consent_workflow.py
 │           └── sp_admin_roles.py
 └── tests/
-    ├── conftest.py
-    ├── test_checks/
-    │   ├── test_user_consent.py
-    │   ├── test_admin_consent_workflow.py
-    │   └── test_sp_admin_roles.py
-    └── test_cli.py
+    ├── conftest.py             # Shared fixtures, mocked Graph client
+    └── test_checks.py          # All check tests
 ```
+
+**Design notes:**
+- Configuration, runner logic, and output formatting live in `cli.py` to avoid over-fragmentation
+- Each check is a separate file for maintainability as the number of checks grows
+- Checks are explicitly registered in `ALL_CHECKS` (no auto-discovery magic)
 
 ---
 
@@ -68,7 +64,7 @@ cd entra-id-spotter
 uv add msgraph-sdk azure-identity click
 
 # Add dev dependencies
-uv add --dev pytest pytest-mock
+uv add --group dev pytest pytest-mock
 
 # Run the tool
 uv run entra-spotter
@@ -77,7 +73,7 @@ uv run entra-spotter
 uv run pytest
 ```
 
-**pyproject.toml** (key sections):
+**pyproject.toml:**
 ```toml
 [project]
 name = "entra-id-spotter"
@@ -92,8 +88,8 @@ dependencies = [
 [project.scripts]
 entra-spotter = "entra_spotter.cli:main"
 
-[tool.uv]
-dev-dependencies = [
+[dependency-groups]
+dev = [
     "pytest>=8.0.0",
     "pytest-mock>=3.12.0",
 ]
@@ -176,6 +172,13 @@ Entra ID Misconfiguration Spotter v0.1.0
 Summary: 1 failed, 1 warning, 1 passed
 ```
 
+**When a check errors:**
+
+```
+[ERROR] User Consent Settings
+        API request failed: 403 Forbidden
+```
+
 ### JSON Output (`--json`)
 
 ```json
@@ -193,13 +196,22 @@ Summary: 1 failed, 1 warning, 1 passed
       "details": {
         "permissionGrantPoliciesAssigned": ["ManagePermissionGrantsForSelf.microsoft-user-default-legacy"]
       }
+    },
+    {
+      "check_id": "admin-consent-workflow",
+      "name": "Admin Consent Workflow",
+      "status": "error",
+      "message": "API request failed: 403 Forbidden",
+      "recommendation": null,
+      "details": null
     }
   ],
   "summary": {
     "total": 3,
     "passed": 1,
     "failed": 1,
-    "warnings": 1
+    "warnings": 0,
+    "errors": 1
   }
 }
 ```
@@ -212,39 +224,117 @@ Summary: 1 failed, 1 warning, 1 passed
 |------|---------|
 | `0` | All checks passed |
 | `1` | One or more checks returned `fail` or `warning` |
-| `2` | Error (authentication failure, API error, invalid config) |
+| `2` | One or more checks returned `error`, or fatal error (auth failure, invalid config) |
+
+---
+
+## Error Handling
+
+**Per-check errors:**
+- If a check throws an exception (e.g., API error, timeout), catch it
+- Mark that check's status as `error` with the exception message
+- Continue running remaining checks
+- Exit with code `2` at the end
+
+**Fatal errors:**
+- Authentication failure → print error, exit `2` immediately
+- Invalid configuration (missing credentials) → print error, exit `2` immediately
+
+**No custom timeouts:** The MS Graph SDK handles timeouts internally. Users can Ctrl+C if needed.
+
+---
+
+## Check Architecture
+
+### Core Types
+
+Defined in `checks/__init__.py`:
+
+```python
+from dataclasses import dataclass
+from typing import Callable, Literal
+from msgraph import GraphServiceClient
+
+Status = Literal["pass", "fail", "warning", "error"]
+
+@dataclass
+class CheckResult:
+    check_id: str
+    status: Status
+    message: str
+    recommendation: str | None = None
+    details: dict | None = None
+
+@dataclass
+class Check:
+    id: str
+    name: str
+    run: Callable[[GraphServiceClient], CheckResult]
+```
+
+### Check Registry
+
+Checks are explicitly registered in `checks/__init__.py`:
+
+```python
+from entra_spotter.checks.user_consent import check_user_consent
+from entra_spotter.checks.admin_consent_workflow import check_admin_consent_workflow
+from entra_spotter.checks.sp_admin_roles import check_sp_admin_roles
+
+ALL_CHECKS: list[Check] = [
+    Check(id="user-consent", name="User Consent Settings", run=check_user_consent),
+    Check(id="admin-consent-workflow", name="Admin Consent Workflow", run=check_admin_consent_workflow),
+    Check(id="sp-admin-roles", name="Service Principal Admin Roles", run=check_sp_admin_roles),
+]
+```
+
+**No auto-discovery.** Explicit registration is simple and debuggable.
 
 ---
 
 ## Adding New Checks
 
-To add a new check:
-
 1. **Create file** `src/entra_spotter/checks/my_new_check.py`:
 
 ```python
-from entra_spotter.checks.base import BaseCheck, CheckResult
+from msgraph import GraphServiceClient
+from entra_spotter.checks import CheckResult
 
-class MyNewCheck(BaseCheck):
-    id = "my-new-check"
-    name = "My New Check"
-    description = "Checks for something important"
-    permissions = ["SomePermission.Read.All"]
+def check_my_thing(client: GraphServiceClient) -> CheckResult:
+    # Call Graph API
+    response = client.some.endpoint.get()
 
-    def run(self, graph_client) -> CheckResult:
-        # Call Graph API
-        # Analyze response
-        # Return result
+    # Analyze and return result
+    if some_condition:
         return CheckResult(
-            check_id=self.id,
-            status="pass",  # or "fail" or "warning"
+            check_id="my-thing",
+            status="pass",
             message="Everything looks good.",
-            recommendation=None,
-            details={}
         )
+
+    return CheckResult(
+        check_id="my-thing",
+        status="fail",
+        message="Something is misconfigured.",
+        recommendation="Do X to fix it.",
+        details={"key": "value"},
+    )
 ```
 
-2. **Done.** The check is auto-discovered and included in runs.
+2. **Register in** `checks/__init__.py`:
+
+```python
+from entra_spotter.checks.my_new_check import check_my_thing
+
+ALL_CHECKS: list[Check] = [
+    # ... existing checks ...
+    Check(id="my-thing", name="My Thing Check", run=check_my_thing),
+]
+```
+
+3. **Add test** in `tests/test_checks.py`.
+
+4. **Update documentation** if new MS Graph permissions are required.
 
 ---
 
@@ -296,8 +386,6 @@ class MyNewCheck(BaseCheck):
 
 ## Service Principal Setup
 
-The tool requires a service principal with the above permissions. Setup steps:
-
 1. Register an app in Entra ID
 2. Add application permissions: `Policy.Read.All`, `RoleManagement.Read.Directory`
 3. Grant admin consent
@@ -308,6 +396,32 @@ The tool requires a service principal with the above permissions. Setup steps:
 
 ## Testing Strategy
 
-- **Unit tests**: Mock Graph API responses, test check logic
+- **Unit tests**: Mock `GraphServiceClient`, test check logic in isolation
 - **No integration tests**: Avoid requiring real tenant access
-- **Test fixtures**: Sample API responses in `tests/fixtures/`
+- **Shared fixtures**: Mocked client and sample API responses in `conftest.py`
+
+Example test structure:
+
+```python
+# tests/test_checks.py
+
+def test_user_consent_pass(mock_graph_client):
+    """User consent check passes when no policies assigned."""
+    mock_graph_client.policies.authorization_policy.get.return_value = MockAuthPolicy(
+        permission_grant_policies_assigned=[]
+    )
+
+    result = check_user_consent(mock_graph_client)
+
+    assert result.status == "pass"
+
+def test_user_consent_fail(mock_graph_client):
+    """User consent check fails when policies allow user consent."""
+    mock_graph_client.policies.authorization_policy.get.return_value = MockAuthPolicy(
+        permission_grant_policies_assigned=["ManagePermissionGrantsForSelf.microsoft-user-default-legacy"]
+    )
+
+    result = check_user_consent(mock_graph_client)
+
+    assert result.status == "fail"
+```
