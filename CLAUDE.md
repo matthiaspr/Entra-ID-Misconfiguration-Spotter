@@ -67,6 +67,7 @@ Checks are explicitly registered in `checks/__init__.py` (no auto-discovery).
 | `user-consent` | `user_consent.py` | `GET /policies/authorizationPolicy` |
 | `admin-consent-workflow` | `admin_consent_workflow.py` | `GET /policies/adminConsentRequestPolicy` |
 | `sp-admin-roles` | `sp_admin_roles.py` | `GET /directoryRoles`, `GET /directoryRoles/{id}/members` |
+| `sp-graph-roles` | `sp_graph_roles.py` | `GET /servicePrincipals?$expand=appRoleAssignments` |
 
 ## Design Decisions
 
@@ -89,8 +90,9 @@ export AZURE_CLIENT_SECRET="your-client-secret"
 
 - `Policy.Read.All` (Application)
 - `RoleManagement.Read.Directory` (Application)
+- `Application.Read.All` (Application)
 
-Both are read-only. The tool never modifies any Entra ID configuration.
+All are read-only. The tool never modifies any Entra ID configuration.
 
 ## Testing
 

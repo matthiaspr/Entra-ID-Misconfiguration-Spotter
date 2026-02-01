@@ -60,6 +60,7 @@ uv run entra-spotter --list-checks
 | `user-consent` | Checks if users can consent to apps accessing company data |
 | `admin-consent-workflow` | Verifies admin consent workflow is enabled with reviewers |
 | `sp-admin-roles` | Identifies service principals in privileged admin roles |
+| `sp-graph-roles` | Identifies service principals with sensitive MS Graph app roles |
 
 ## Required Permissions
 
@@ -67,6 +68,7 @@ The service principal needs these MS Graph application permissions:
 
 - `Policy.Read.All`
 - `RoleManagement.Read.Directory`
+- `Application.Read.All`
 
 ## Development
 

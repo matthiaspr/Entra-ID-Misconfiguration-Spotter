@@ -5,6 +5,7 @@ import pytest
 from entra_spotter.checks.user_consent import check_user_consent
 from entra_spotter.checks.admin_consent_workflow import check_admin_consent_workflow
 from entra_spotter.checks.sp_admin_roles import check_sp_admin_roles
+from entra_spotter.checks.sp_graph_roles import check_sp_graph_roles
 
 from conftest import (
     MockAuthorizationPolicy,
@@ -13,6 +14,9 @@ from conftest import (
     MockDirectoryRolesResponse,
     MockRoleMember,
     MockRoleMembersResponse,
+    MockAppRoleAssignment,
+    MockServicePrincipal,
+    MockServicePrincipalsResponse,
 )
 
 
@@ -225,3 +229,111 @@ class TestServicePrincipalAdminRoles:
         result = check_sp_admin_roles(mock_graph_client)
 
         assert result.status == "pass"
+
+
+class TestServicePrincipalGraphRoles:
+    """Tests for service principal MS Graph app roles check."""
+
+    def test_pass_when_no_service_principals(self, mock_graph_client):
+        """Should pass when no service principals exist."""
+        mock_graph_client.service_principals.get.return_value = MockServicePrincipalsResponse([])
+
+        result = check_sp_graph_roles(mock_graph_client)
+
+        assert result.status == "pass"
+        assert result.check_id == "sp-graph-roles"
+
+    def test_pass_when_no_sensitive_roles(self, mock_graph_client):
+        """Should pass when SPs have no sensitive app roles."""
+        mock_graph_client.service_principals.get.return_value = MockServicePrincipalsResponse([
+            MockServicePrincipal(
+                id="sp-1",
+                display_name="Safe App",
+                app_role_assignments=[
+                    MockAppRoleAssignment(app_role_id="some-harmless-role-id"),
+                ],
+            )
+        ])
+
+        result = check_sp_graph_roles(mock_graph_client)
+
+        assert result.status == "pass"
+
+    def test_pass_when_no_app_role_assignments(self, mock_graph_client):
+        """Should pass when SPs have no app role assignments."""
+        mock_graph_client.service_principals.get.return_value = MockServicePrincipalsResponse([
+            MockServicePrincipal(
+                id="sp-1",
+                display_name="App Without Roles",
+                app_role_assignments=None,
+            )
+        ])
+
+        result = check_sp_graph_roles(mock_graph_client)
+
+        assert result.status == "pass"
+
+    def test_warning_when_sp_has_role_management_role(self, mock_graph_client):
+        """Should warn when SP has RoleManagement.ReadWrite.Directory."""
+        mock_graph_client.service_principals.get.return_value = MockServicePrincipalsResponse([
+            MockServicePrincipal(
+                id="sp-1",
+                display_name="Privileged App",
+                app_role_assignments=[
+                    MockAppRoleAssignment(
+                        app_role_id="9e3f62cf-ca93-4989-b6ce-bf83c28f9fe8",  # RoleManagement.ReadWrite.Directory
+                    ),
+                ],
+            )
+        ])
+
+        result = check_sp_graph_roles(mock_graph_client)
+
+        assert result.status == "warning"
+        assert result.check_id == "sp-graph-roles"
+        assert len(result.details["service_principals"]) == 1
+        assert result.details["service_principals"][0]["app_role"] == "RoleManagement.ReadWrite.Directory"
+
+    def test_warning_when_sp_has_app_role_assignment_role(self, mock_graph_client):
+        """Should warn when SP has AppRoleAssignment.ReadWrite.All."""
+        mock_graph_client.service_principals.get.return_value = MockServicePrincipalsResponse([
+            MockServicePrincipal(
+                id="sp-1",
+                display_name="Another Privileged App",
+                app_role_assignments=[
+                    MockAppRoleAssignment(
+                        app_role_id="06b708a9-e830-4db3-a914-8e69da51d44f",  # AppRoleAssignment.ReadWrite.All
+                    ),
+                ],
+            )
+        ])
+
+        result = check_sp_graph_roles(mock_graph_client)
+
+        assert result.status == "warning"
+        assert result.details["service_principals"][0]["app_role"] == "AppRoleAssignment.ReadWrite.All"
+
+    def test_warning_with_multiple_sps_and_roles(self, mock_graph_client):
+        """Should warn and list all SPs with sensitive roles."""
+        mock_graph_client.service_principals.get.return_value = MockServicePrincipalsResponse([
+            MockServicePrincipal(
+                id="sp-1",
+                display_name="App One",
+                app_role_assignments=[
+                    MockAppRoleAssignment(app_role_id="9e3f62cf-ca93-4989-b6ce-bf83c28f9fe8"),
+                ],
+            ),
+            MockServicePrincipal(
+                id="sp-2",
+                display_name="App Two",
+                app_role_assignments=[
+                    MockAppRoleAssignment(app_role_id="06b708a9-e830-4db3-a914-8e69da51d44f"),
+                ],
+            ),
+        ])
+
+        result = check_sp_graph_roles(mock_graph_client)
+
+        assert result.status == "warning"
+        assert len(result.details["service_principals"]) == 2
+        assert "2 service principal(s)" in result.message

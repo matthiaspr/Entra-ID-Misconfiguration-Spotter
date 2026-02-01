@@ -371,6 +371,20 @@ ALL_CHECKS: list[Check] = [
 | **PASS** | No service principals in privileged roles |
 | **WARN** | One or more service principals found in privileged roles |
 
+### 4. Service Principal MS Graph Roles (`sp-graph-roles`)
+
+| | |
+|---|---|
+| **API** | `GET /servicePrincipals?$expand=appRoleAssignments` |
+| **Permission** | `Application.Read.All` |
+| **Sensitive Roles** | `RoleManagement.ReadWrite.Directory`, `AppRoleAssignment.ReadWrite.All` |
+| **PASS** | No service principals have these sensitive app roles |
+| **WARN** | One or more service principals have sensitive app roles |
+
+These roles are dangerous because they allow privilege escalation:
+- **RoleManagement.ReadWrite.Directory**: Can assign any directory role (including Global Admin)
+- **AppRoleAssignment.ReadWrite.All**: Can grant any app role to any service principal
+
 ---
 
 ## Required MS Graph Permissions
@@ -379,15 +393,16 @@ ALL_CHECKS: list[Check] = [
 |------------|------|-------------|
 | `Policy.Read.All` | Application | Read authorization and consent policies |
 | `RoleManagement.Read.Directory` | Application | Read directory role assignments |
+| `Application.Read.All` | Application | Read service principal app role assignments |
 
-**Total: 2 application permissions** (read-only)
+**Total: 3 application permissions** (read-only)
 
 ---
 
 ## Service Principal Setup
 
 1. Register an app in Entra ID
-2. Add application permissions: `Policy.Read.All`, `RoleManagement.Read.Directory`
+2. Add application permissions: `Policy.Read.All`, `RoleManagement.Read.Directory`, `Application.Read.All`
 3. Grant admin consent
 4. Create a client secret
 5. Note: Tenant ID, Client ID, Client Secret

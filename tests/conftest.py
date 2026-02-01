@@ -53,3 +53,26 @@ class MockRoleMember:
 class MockRoleMembersResponse:
     def __init__(self, members: list[MockRoleMember]):
         self.value = members
+
+
+class MockAppRoleAssignment:
+    def __init__(self, app_role_id: str, resource_display_name: str = "Microsoft Graph"):
+        self.app_role_id = app_role_id
+        self.resource_display_name = resource_display_name
+
+
+class MockServicePrincipal:
+    def __init__(
+        self,
+        id: str,
+        display_name: str,
+        app_role_assignments: list[MockAppRoleAssignment] | None = None,
+    ):
+        self.id = id
+        self.display_name = display_name
+        self.app_role_assignments = app_role_assignments
+
+
+class MockServicePrincipalsResponse:
+    def __init__(self, service_principals: list[MockServicePrincipal]):
+        self.value = service_principals
