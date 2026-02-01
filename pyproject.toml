@@ -17,6 +17,7 @@ entra-spotter = "entra_spotter.cli:main"
 dev = [
     "pytest>=8.0.0",
     "pytest-mock>=3.12.0",
+    "pytest-asyncio>=0.23.0",
 ]
 
 [build-system]
@@ -25,3 +26,7 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/entra_spotter"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"

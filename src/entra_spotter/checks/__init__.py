@@ -1,7 +1,7 @@
 """Check types and registry."""
 
 from dataclasses import dataclass
-from typing import Callable, Literal
+from typing import Awaitable, Callable, Literal
 
 from msgraph import GraphServiceClient
 
@@ -25,7 +25,7 @@ class Check:
 
     id: str
     name: str
-    run: Callable[[GraphServiceClient], CheckResult]
+    run: Callable[[GraphServiceClient], Awaitable[CheckResult]]
 
 
 # Import checks - these will be added as we implement them

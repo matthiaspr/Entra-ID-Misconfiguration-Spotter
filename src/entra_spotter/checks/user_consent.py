@@ -3,10 +3,9 @@
 from msgraph import GraphServiceClient
 
 from entra_spotter.checks import CheckResult
-from entra_spotter.graph import run_sync
 
 
-def check_user_consent(client: GraphServiceClient) -> CheckResult:
+async def check_user_consent(client: GraphServiceClient) -> CheckResult:
     """Check if users can consent to apps accessing company data.
 
     Calls GET /policies/authorizationPolicy and checks
@@ -15,7 +14,7 @@ def check_user_consent(client: GraphServiceClient) -> CheckResult:
     Pass: Empty array (users cannot consent)
     Fail: Contains any consent policy (users can consent)
     """
-    response = run_sync(client.policies.authorization_policy.get())
+    response = await client.policies.authorization_policy.get()
 
     policies = (
         response.default_user_role_permissions.permission_grant_policies_assigned or []

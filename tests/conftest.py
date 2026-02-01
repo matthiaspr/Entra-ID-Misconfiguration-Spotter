@@ -1,30 +1,20 @@
 """Shared test fixtures."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 
 @pytest.fixture
 def mock_graph_client():
-    """Create a mock GraphServiceClient."""
-    return MagicMock()
-
-
-@pytest.fixture(autouse=True)
-def mock_run_sync():
-    """Patch run_sync to return the mock value directly.
-
-    Since mocks return values directly (not coroutines), we need to
-    bypass asyncio.run() in tests. We patch in each module where it's imported.
-    """
-    with (
-        patch("entra_spotter.checks.user_consent.run_sync", side_effect=lambda x: x),
-        patch("entra_spotter.checks.admin_consent_workflow.run_sync", side_effect=lambda x: x),
-        patch("entra_spotter.checks.sp_admin_roles.run_sync", side_effect=lambda x: x),
-        patch("entra_spotter.checks.sp_graph_roles.run_sync", side_effect=lambda x: x),
-    ):
-        yield
+    """Create a mock GraphServiceClient with async methods."""
+    client = MagicMock()
+    # Make the .get() methods return AsyncMock so they can be awaited
+    client.policies.authorization_policy.get = AsyncMock()
+    client.policies.admin_consent_request_policy.get = AsyncMock()
+    client.directory_roles.get = AsyncMock()
+    client.service_principals.get = AsyncMock()
+    return client
 
 
 # Mock response classes to simulate Graph API responses

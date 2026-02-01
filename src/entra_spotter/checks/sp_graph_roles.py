@@ -1,9 +1,11 @@
 """Check for service principals with sensitive MS Graph app roles."""
 
 from msgraph import GraphServiceClient
+from msgraph.generated.service_principals.service_principals_request_builder import (
+    ServicePrincipalsRequestBuilder,
+)
 
 from entra_spotter.checks import CheckResult
-from entra_spotter.graph import run_sync
 
 # Sensitive MS Graph app role IDs
 # These roles allow privilege escalation if compromised
@@ -17,7 +19,7 @@ SENSITIVE_APP_ROLES = {
 MS_GRAPH_APP_ID = "00000003-0000-0000-c000-000000000000"
 
 
-def check_sp_graph_roles(client: GraphServiceClient) -> CheckResult:
+async def check_sp_graph_roles(client: GraphServiceClient) -> CheckResult:
     """Check for service principals with sensitive MS Graph app roles.
 
     These roles are dangerous because they allow privilege escalation:
@@ -29,13 +31,14 @@ def check_sp_graph_roles(client: GraphServiceClient) -> CheckResult:
     Warning: One or more service principals have sensitive roles
     """
     # Get all service principals with their app role assignments
-    response = run_sync(
-        client.service_principals.get(
-            request_configuration=lambda config: setattr(
-                config.query_parameters, "expand", ["appRoleAssignments"]
-            )
-        )
+    query_params = ServicePrincipalsRequestBuilder.ServicePrincipalsRequestBuilderGetQueryParameters(
+        expand=["appRoleAssignments"],
     )
+    request_config = ServicePrincipalsRequestBuilder.ServicePrincipalsRequestBuilderGetRequestConfiguration(
+        query_parameters=query_params,
+    )
+
+    response = await client.service_principals.get(request_configuration=request_config)
 
     service_principals = response.value or []
     findings: list[dict] = []

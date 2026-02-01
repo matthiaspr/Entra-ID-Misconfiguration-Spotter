@@ -1,5 +1,6 @@
 """CLI entry point, configuration, runner, and output formatting."""
 
+import asyncio
 import json
 import os
 import sys
@@ -45,11 +46,11 @@ def get_config(
     return tenant, client, secret
 
 
-def run_checks(
+async def run_checks_async(
     client,
     checks: list[Check],
 ) -> list[tuple[Check, CheckResult]]:
-    """Run checks and return results.
+    """Run checks asynchronously and return results.
 
     If a check raises an exception, it's caught and returned as an error result.
     """
@@ -57,7 +58,7 @@ def run_checks(
 
     for check in checks:
         try:
-            result = check.run(client)
+            result = await check.run(client)
         except Exception as e:
             result = CheckResult(
                 check_id=check.id,
@@ -93,10 +94,13 @@ def format_text_output(results: list[tuple[Check, CheckResult]]) -> str:
             lines.append(f"       Recommendation: {result.recommendation}")
 
         if result.details and result.status == "warning":
-            # Show service principal details for sp-admin-roles
+            # Show service principal details for sp-admin-roles and sp-graph-roles
             if "service_principals" in result.details:
                 for sp in result.details["service_principals"]:
-                    lines.append(f"         - \"{sp['display_name']}\" → {sp['role']}")
+                    if "role" in sp:
+                        lines.append(f"         - \"{sp['display_name']}\" → {sp['role']}")
+                    elif "app_role" in sp:
+                        lines.append(f"         - \"{sp['display_name']}\" → {sp['app_role']}")
 
         lines.append("")
 
@@ -242,8 +246,8 @@ def main(
     except Exception as e:
         raise click.ClickException(f"Failed to create Graph client: {e}")
 
-    # Run checks
-    results = run_checks(graph_client, checks_to_run)
+    # Run checks in a single async context
+    results = asyncio.run(run_checks_async(graph_client, checks_to_run))
 
     # Output results
     if output_json:

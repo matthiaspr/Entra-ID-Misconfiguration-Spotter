@@ -3,10 +3,9 @@
 from msgraph import GraphServiceClient
 
 from entra_spotter.checks import CheckResult
-from entra_spotter.graph import run_sync
 
 
-def check_admin_consent_workflow(client: GraphServiceClient) -> CheckResult:
+async def check_admin_consent_workflow(client: GraphServiceClient) -> CheckResult:
     """Check if admin consent workflow is enabled with reviewers.
 
     Calls GET /policies/adminConsentRequestPolicy and checks
@@ -16,7 +15,7 @@ def check_admin_consent_workflow(client: GraphServiceClient) -> CheckResult:
     Fail: isEnabled=false
     Warning: isEnabled=true but reviewers is empty
     """
-    response = run_sync(client.policies.admin_consent_request_policy.get())
+    response = await client.policies.admin_consent_request_policy.get()
 
     is_enabled = response.is_enabled
     reviewers = response.reviewers or []

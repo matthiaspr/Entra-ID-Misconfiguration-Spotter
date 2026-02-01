@@ -1,5 +1,7 @@
 """Tests for all checks."""
 
+from unittest.mock import AsyncMock
+
 import pytest
 
 from entra_spotter.checks.user_consent import check_user_consent
@@ -23,28 +25,28 @@ from conftest import (
 class TestUserConsent:
     """Tests for user consent check."""
 
-    def test_pass_when_no_policies_assigned(self, mock_graph_client):
+    async def test_pass_when_no_policies_assigned(self, mock_graph_client):
         """Should pass when no consent policies are assigned."""
         mock_graph_client.policies.authorization_policy.get.return_value = (
             MockAuthorizationPolicy(permission_grant_policies_assigned=[])
         )
 
-        result = check_user_consent(mock_graph_client)
+        result = await check_user_consent(mock_graph_client)
 
         assert result.status == "pass"
         assert result.check_id == "user-consent"
 
-    def test_pass_when_policies_is_none(self, mock_graph_client):
+    async def test_pass_when_policies_is_none(self, mock_graph_client):
         """Should pass when policies field is None."""
         mock_graph_client.policies.authorization_policy.get.return_value = (
             MockAuthorizationPolicy(permission_grant_policies_assigned=None)
         )
 
-        result = check_user_consent(mock_graph_client)
+        result = await check_user_consent(mock_graph_client)
 
         assert result.status == "pass"
 
-    def test_fail_when_policies_assigned(self, mock_graph_client):
+    async def test_fail_when_policies_assigned(self, mock_graph_client):
         """Should fail when consent policies are assigned."""
         mock_graph_client.policies.authorization_policy.get.return_value = (
             MockAuthorizationPolicy(
@@ -54,7 +56,7 @@ class TestUserConsent:
             )
         )
 
-        result = check_user_consent(mock_graph_client)
+        result = await check_user_consent(mock_graph_client)
 
         assert result.status == "fail"
         assert result.check_id == "user-consent"
@@ -65,49 +67,49 @@ class TestUserConsent:
 class TestAdminConsentWorkflow:
     """Tests for admin consent workflow check."""
 
-    def test_pass_when_enabled_with_reviewers(self, mock_graph_client):
+    async def test_pass_when_enabled_with_reviewers(self, mock_graph_client):
         """Should pass when workflow is enabled with reviewers."""
         mock_graph_client.policies.admin_consent_request_policy.get.return_value = (
             MockAdminConsentRequestPolicy(is_enabled=True, reviewers=["reviewer1", "reviewer2"])
         )
 
-        result = check_admin_consent_workflow(mock_graph_client)
+        result = await check_admin_consent_workflow(mock_graph_client)
 
         assert result.status == "pass"
         assert result.check_id == "admin-consent-workflow"
         assert "2 reviewer(s)" in result.message
 
-    def test_fail_when_disabled(self, mock_graph_client):
+    async def test_fail_when_disabled(self, mock_graph_client):
         """Should fail when workflow is disabled."""
         mock_graph_client.policies.admin_consent_request_policy.get.return_value = (
             MockAdminConsentRequestPolicy(is_enabled=False, reviewers=[])
         )
 
-        result = check_admin_consent_workflow(mock_graph_client)
+        result = await check_admin_consent_workflow(mock_graph_client)
 
         assert result.status == "fail"
         assert result.check_id == "admin-consent-workflow"
         assert result.recommendation is not None
 
-    def test_warning_when_enabled_but_no_reviewers(self, mock_graph_client):
+    async def test_warning_when_enabled_but_no_reviewers(self, mock_graph_client):
         """Should warn when workflow is enabled but has no reviewers."""
         mock_graph_client.policies.admin_consent_request_policy.get.return_value = (
             MockAdminConsentRequestPolicy(is_enabled=True, reviewers=[])
         )
 
-        result = check_admin_consent_workflow(mock_graph_client)
+        result = await check_admin_consent_workflow(mock_graph_client)
 
         assert result.status == "warning"
         assert result.check_id == "admin-consent-workflow"
         assert result.recommendation is not None
 
-    def test_warning_when_enabled_but_reviewers_is_none(self, mock_graph_client):
+    async def test_warning_when_enabled_but_reviewers_is_none(self, mock_graph_client):
         """Should warn when workflow is enabled but reviewers is None."""
         mock_graph_client.policies.admin_consent_request_policy.get.return_value = (
             MockAdminConsentRequestPolicy(is_enabled=True, reviewers=None)
         )
 
-        result = check_admin_consent_workflow(mock_graph_client)
+        result = await check_admin_consent_workflow(mock_graph_client)
 
         assert result.status == "warning"
 
@@ -115,7 +117,7 @@ class TestAdminConsentWorkflow:
 class TestServicePrincipalAdminRoles:
     """Tests for service principal admin roles check."""
 
-    def test_pass_when_no_privileged_roles(self, mock_graph_client):
+    async def test_pass_when_no_privileged_roles(self, mock_graph_client):
         """Should pass when no service principals are in privileged roles."""
         # Return a non-privileged role
         mock_graph_client.directory_roles.get.return_value = MockDirectoryRolesResponse([
@@ -126,12 +128,12 @@ class TestServicePrincipalAdminRoles:
             )
         ])
 
-        result = check_sp_admin_roles(mock_graph_client)
+        result = await check_sp_admin_roles(mock_graph_client)
 
         assert result.status == "pass"
         assert result.check_id == "sp-admin-roles"
 
-    def test_pass_when_privileged_role_has_only_users(self, mock_graph_client):
+    async def test_pass_when_privileged_role_has_only_users(self, mock_graph_client):
         """Should pass when privileged roles have only user members."""
         # Global Administrator template ID
         mock_graph_client.directory_roles.get.return_value = MockDirectoryRolesResponse([
@@ -143,21 +145,21 @@ class TestServicePrincipalAdminRoles:
         ])
 
         # Members are users, not service principals
-        mock_graph_client.directory_roles.by_directory_role_id.return_value.members.get.return_value = (
-            MockRoleMembersResponse([
-                MockRoleMember(
-                    id="user-1",
-                    display_name="John Doe",
-                    odata_type="#microsoft.graph.user",
-                )
-            ])
-        )
+        mock_members = AsyncMock()
+        mock_members.return_value = MockRoleMembersResponse([
+            MockRoleMember(
+                id="user-1",
+                display_name="John Doe",
+                odata_type="#microsoft.graph.user",
+            )
+        ])
+        mock_graph_client.directory_roles.by_directory_role_id.return_value.members.get = mock_members
 
-        result = check_sp_admin_roles(mock_graph_client)
+        result = await check_sp_admin_roles(mock_graph_client)
 
         assert result.status == "pass"
 
-    def test_warning_when_sp_in_global_admin(self, mock_graph_client):
+    async def test_warning_when_sp_in_global_admin(self, mock_graph_client):
         """Should warn when a service principal is in Global Administrator role."""
         mock_graph_client.directory_roles.get.return_value = MockDirectoryRolesResponse([
             MockDirectoryRole(
@@ -167,17 +169,17 @@ class TestServicePrincipalAdminRoles:
             )
         ])
 
-        mock_graph_client.directory_roles.by_directory_role_id.return_value.members.get.return_value = (
-            MockRoleMembersResponse([
-                MockRoleMember(
-                    id="sp-1",
-                    display_name="My Service Principal",
-                    odata_type="#microsoft.graph.servicePrincipal",
-                )
-            ])
-        )
+        mock_members = AsyncMock()
+        mock_members.return_value = MockRoleMembersResponse([
+            MockRoleMember(
+                id="sp-1",
+                display_name="My Service Principal",
+                odata_type="#microsoft.graph.servicePrincipal",
+            )
+        ])
+        mock_graph_client.directory_roles.by_directory_role_id.return_value.members.get = mock_members
 
-        result = check_sp_admin_roles(mock_graph_client)
+        result = await check_sp_admin_roles(mock_graph_client)
 
         assert result.status == "warning"
         assert result.check_id == "sp-admin-roles"
@@ -186,7 +188,7 @@ class TestServicePrincipalAdminRoles:
         assert result.details["service_principals"][0]["display_name"] == "My Service Principal"
         assert result.details["service_principals"][0]["role"] == "Global Administrator"
 
-    def test_warning_with_multiple_sps_in_multiple_roles(self, mock_graph_client):
+    async def test_warning_with_multiple_sps_in_multiple_roles(self, mock_graph_client):
         """Should warn and list all service principals in privileged roles."""
         mock_graph_client.directory_roles.get.return_value = MockDirectoryRolesResponse([
             MockDirectoryRole(
@@ -201,32 +203,32 @@ class TestServicePrincipalAdminRoles:
             ),
         ])
 
-        def mock_members(role_id):
+        def mock_by_role_id(role_id):
             mock = type("Mock", (), {})()
             mock.members = type("Mock", (), {})()
 
             if role_id == "role-1":
-                mock.members.get = lambda: MockRoleMembersResponse([
+                mock.members.get = AsyncMock(return_value=MockRoleMembersResponse([
                     MockRoleMember("sp-1", "SP One", "#microsoft.graph.servicePrincipal")
-                ])
+                ]))
             else:
-                mock.members.get = lambda: MockRoleMembersResponse([
+                mock.members.get = AsyncMock(return_value=MockRoleMembersResponse([
                     MockRoleMember("sp-2", "SP Two", "#microsoft.graph.servicePrincipal")
-                ])
+                ]))
             return mock
 
-        mock_graph_client.directory_roles.by_directory_role_id.side_effect = mock_members
+        mock_graph_client.directory_roles.by_directory_role_id.side_effect = mock_by_role_id
 
-        result = check_sp_admin_roles(mock_graph_client)
+        result = await check_sp_admin_roles(mock_graph_client)
 
         assert result.status == "warning"
         assert len(result.details["service_principals"]) == 2
 
-    def test_pass_when_no_roles_exist(self, mock_graph_client):
+    async def test_pass_when_no_roles_exist(self, mock_graph_client):
         """Should pass when no directory roles exist."""
         mock_graph_client.directory_roles.get.return_value = MockDirectoryRolesResponse([])
 
-        result = check_sp_admin_roles(mock_graph_client)
+        result = await check_sp_admin_roles(mock_graph_client)
 
         assert result.status == "pass"
 
@@ -234,16 +236,16 @@ class TestServicePrincipalAdminRoles:
 class TestServicePrincipalGraphRoles:
     """Tests for service principal MS Graph app roles check."""
 
-    def test_pass_when_no_service_principals(self, mock_graph_client):
+    async def test_pass_when_no_service_principals(self, mock_graph_client):
         """Should pass when no service principals exist."""
         mock_graph_client.service_principals.get.return_value = MockServicePrincipalsResponse([])
 
-        result = check_sp_graph_roles(mock_graph_client)
+        result = await check_sp_graph_roles(mock_graph_client)
 
         assert result.status == "pass"
         assert result.check_id == "sp-graph-roles"
 
-    def test_pass_when_no_sensitive_roles(self, mock_graph_client):
+    async def test_pass_when_no_sensitive_roles(self, mock_graph_client):
         """Should pass when SPs have no sensitive app roles."""
         mock_graph_client.service_principals.get.return_value = MockServicePrincipalsResponse([
             MockServicePrincipal(
@@ -255,11 +257,11 @@ class TestServicePrincipalGraphRoles:
             )
         ])
 
-        result = check_sp_graph_roles(mock_graph_client)
+        result = await check_sp_graph_roles(mock_graph_client)
 
         assert result.status == "pass"
 
-    def test_pass_when_no_app_role_assignments(self, mock_graph_client):
+    async def test_pass_when_no_app_role_assignments(self, mock_graph_client):
         """Should pass when SPs have no app role assignments."""
         mock_graph_client.service_principals.get.return_value = MockServicePrincipalsResponse([
             MockServicePrincipal(
@@ -269,11 +271,11 @@ class TestServicePrincipalGraphRoles:
             )
         ])
 
-        result = check_sp_graph_roles(mock_graph_client)
+        result = await check_sp_graph_roles(mock_graph_client)
 
         assert result.status == "pass"
 
-    def test_warning_when_sp_has_role_management_role(self, mock_graph_client):
+    async def test_warning_when_sp_has_role_management_role(self, mock_graph_client):
         """Should warn when SP has RoleManagement.ReadWrite.Directory."""
         mock_graph_client.service_principals.get.return_value = MockServicePrincipalsResponse([
             MockServicePrincipal(
@@ -287,14 +289,14 @@ class TestServicePrincipalGraphRoles:
             )
         ])
 
-        result = check_sp_graph_roles(mock_graph_client)
+        result = await check_sp_graph_roles(mock_graph_client)
 
         assert result.status == "warning"
         assert result.check_id == "sp-graph-roles"
         assert len(result.details["service_principals"]) == 1
         assert result.details["service_principals"][0]["app_role"] == "RoleManagement.ReadWrite.Directory"
 
-    def test_warning_when_sp_has_app_role_assignment_role(self, mock_graph_client):
+    async def test_warning_when_sp_has_app_role_assignment_role(self, mock_graph_client):
         """Should warn when SP has AppRoleAssignment.ReadWrite.All."""
         mock_graph_client.service_principals.get.return_value = MockServicePrincipalsResponse([
             MockServicePrincipal(
@@ -308,12 +310,12 @@ class TestServicePrincipalGraphRoles:
             )
         ])
 
-        result = check_sp_graph_roles(mock_graph_client)
+        result = await check_sp_graph_roles(mock_graph_client)
 
         assert result.status == "warning"
         assert result.details["service_principals"][0]["app_role"] == "AppRoleAssignment.ReadWrite.All"
 
-    def test_warning_when_sp_has_user_auth_method_role(self, mock_graph_client):
+    async def test_warning_when_sp_has_user_auth_method_role(self, mock_graph_client):
         """Should warn when SP has UserAuthenticationMethod.ReadWrite.All."""
         mock_graph_client.service_principals.get.return_value = MockServicePrincipalsResponse([
             MockServicePrincipal(
@@ -327,12 +329,12 @@ class TestServicePrincipalGraphRoles:
             )
         ])
 
-        result = check_sp_graph_roles(mock_graph_client)
+        result = await check_sp_graph_roles(mock_graph_client)
 
         assert result.status == "warning"
         assert result.details["service_principals"][0]["app_role"] == "UserAuthenticationMethod.ReadWrite.All"
 
-    def test_warning_with_multiple_sps_and_roles(self, mock_graph_client):
+    async def test_warning_with_multiple_sps_and_roles(self, mock_graph_client):
         """Should warn and list all SPs with sensitive roles."""
         mock_graph_client.service_principals.get.return_value = MockServicePrincipalsResponse([
             MockServicePrincipal(
@@ -351,7 +353,7 @@ class TestServicePrincipalGraphRoles:
             ),
         ])
 
-        result = check_sp_graph_roles(mock_graph_client)
+        result = await check_sp_graph_roles(mock_graph_client)
 
         assert result.status == "warning"
         assert len(result.details["service_principals"]) == 2
