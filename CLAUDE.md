@@ -31,15 +31,15 @@ uv run pytest
 
 ### Check Pattern
 
-Checks are simple functions that return a `CheckResult`:
+Checks are async functions that return a `CheckResult` (async required by msgraph-sdk):
 
 ```python
 from msgraph import GraphServiceClient
 from entra_spotter.checks import CheckResult
 
-def check_my_thing(client: GraphServiceClient) -> CheckResult:
-    # Call Graph API
-    response = client.some.endpoint.get()
+async def check_my_thing(client: GraphServiceClient) -> CheckResult:
+    # Call Graph API (must await)
+    response = await client.some.endpoint.get()
 
     # Analyze and return result
     if condition_met:
@@ -66,17 +66,19 @@ Checks are explicitly registered in `checks/__init__.py` (no auto-discovery).
 |----|------|--------------|
 | `user-consent` | `user_consent.py` | `GET /policies/authorizationPolicy` |
 | `admin-consent-workflow` | `admin_consent_workflow.py` | `GET /policies/adminConsentRequestPolicy` |
-| `sp-admin-roles` | `sp_admin_roles.py` | `GET /directoryRoles`, `GET /directoryRoles/{id}/members` |
+| `sp-admin-roles` | `sp_admin_roles.py` | `GET /roleManagement/directory/roleAssignments?$expand=principal` |
 | `sp-graph-roles` | `sp_graph_roles.py` | `GET /servicePrincipals?$expand=appRoleAssignments` |
+| `legacy-auth-blocked` | `legacy_auth_blocked.py` | `GET /identity/conditionalAccess/policies` |
 
 ## Design Decisions
 
-1. **Sync, not async** - Simpler code, easier maintenance
+1. **Async checks** - Required by msgraph-sdk; all checks run in a single `asyncio.run()` call
 2. **uv for packaging** - Fast, modern Python tooling
 3. **No .env file support** - Use actual environment variables
 4. **Check IDs for CLI** - Use `--check user-consent` not `--check "User Consent Settings"`
 5. **Explicit registration** - Checks are added to `ALL_CHECKS` list manually (no magic)
 6. **Function-based checks** - Simple functions, not classes with inheritance
+7. **Unified RBAC API** - Use `/roleManagement/directory/roleAssignments` instead of legacy `/directoryRoles` for role membership checks
 
 ## Environment Variables
 
