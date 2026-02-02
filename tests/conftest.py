@@ -114,11 +114,13 @@ class MockCAUsers:
     def __init__(
         self,
         include_users: list[str] | None = None,
+        include_roles: list[str] | None = None,
         exclude_users: list[str] | None = None,
         exclude_groups: list[str] | None = None,
         exclude_roles: list[str] | None = None,
     ):
         self.include_users = include_users
+        self.include_roles = include_roles
         self.exclude_users = exclude_users
         self.exclude_groups = exclude_groups
         self.exclude_roles = exclude_roles

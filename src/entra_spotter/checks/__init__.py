@@ -35,6 +35,7 @@ from entra_spotter.checks.sp_admin_roles import check_sp_admin_roles
 from entra_spotter.checks.sp_graph_roles import check_sp_graph_roles
 from entra_spotter.checks.legacy_auth_blocked import check_legacy_auth_blocked
 from entra_spotter.checks.device_code_blocked import check_device_code_blocked
+from entra_spotter.checks.privileged_roles_mfa import check_privileged_roles_mfa
 
 ALL_CHECKS: list[Check] = [
     Check(
@@ -66,5 +67,10 @@ ALL_CHECKS: list[Check] = [
         id="device-code-blocked",
         name="Device Code Flow Blocked",
         run=check_device_code_blocked,
+    ),
+    Check(
+        id="privileged-roles-mfa",
+        name="MFA for Privileged Roles",
+        run=check_privileged_roles_mfa,
     ),
 ]

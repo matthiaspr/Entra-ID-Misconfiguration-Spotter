@@ -10,6 +10,7 @@ from entra_spotter.checks.sp_admin_roles import check_sp_admin_roles
 from entra_spotter.checks.sp_graph_roles import check_sp_graph_roles
 from entra_spotter.checks.legacy_auth_blocked import check_legacy_auth_blocked
 from entra_spotter.checks.device_code_blocked import check_device_code_blocked
+from entra_spotter.checks.privileged_roles_mfa import check_privileged_roles_mfa, PRIVILEGED_ROLES
 
 from conftest import (
     MockAuthorizationPolicy,
@@ -774,3 +775,196 @@ class TestDeviceCodeBlocked:
         result = await check_device_code_blocked(mock_graph_client)
 
         assert result.status == "fail"
+
+
+class TestPrivilegedRolesMfa:
+    """Tests for MFA for privileged roles check."""
+
+    # All 14 privileged role IDs
+    ALL_ROLE_IDS = list(PRIVILEGED_ROLES.keys())
+
+    def _create_mfa_policy(
+        self,
+        policy_id: str = "policy-1",
+        name: str = "MFA for Admins",
+        state: str = "enabled",
+        include_roles: list[str] | None = None,
+        exclude_users: list[str] | None = None,
+        exclude_groups: list[str] | None = None,
+        exclude_roles: list[str] | None = None,
+        exclude_applications: list[str] | None = None,
+    ) -> MockConditionalAccessPolicy:
+        """Helper to create a valid MFA policy for roles."""
+        return MockConditionalAccessPolicy(
+            id=policy_id,
+            display_name=name,
+            state=state,
+            conditions=MockCAConditions(
+                users=MockCAUsers(
+                    include_roles=include_roles or self.ALL_ROLE_IDS,
+                    exclude_users=exclude_users,
+                    exclude_groups=exclude_groups,
+                    exclude_roles=exclude_roles,
+                ),
+                applications=MockCAApplications(
+                    include_applications=["All"],
+                    exclude_applications=exclude_applications,
+                ),
+            ),
+            grant_controls=MockCAGrantControls(built_in_controls=["mfa"]),
+        )
+
+    async def test_pass_when_all_roles_covered_no_exclusions(self, mock_graph_client):
+        """Should pass when all privileged roles are covered by MFA with no exclusions."""
+        mock_graph_client.identity.conditional_access.policies.get.return_value = (
+            MockCAPoliciesResponse([self._create_mfa_policy()])
+        )
+
+        result = await check_privileged_roles_mfa(mock_graph_client)
+
+        assert result.status == "pass"
+        assert result.check_id == "privileged-roles-mfa"
+        assert "All 14 privileged roles require MFA" in result.message
+
+    async def test_fail_when_no_policies_exist(self, mock_graph_client):
+        """Should fail when no CA policies exist."""
+        mock_graph_client.identity.conditional_access.policies.get.return_value = (
+            MockCAPoliciesResponse([])
+        )
+
+        result = await check_privileged_roles_mfa(mock_graph_client)
+
+        assert result.status == "fail"
+        assert result.check_id == "privileged-roles-mfa"
+        assert result.recommendation is not None
+
+    async def test_fail_when_some_roles_not_covered(self, mock_graph_client):
+        """Should fail when some privileged roles are not covered."""
+        # Only cover 10 of the 14 roles
+        partial_roles = self.ALL_ROLE_IDS[:10]
+        policy = self._create_mfa_policy(include_roles=partial_roles)
+        mock_graph_client.identity.conditional_access.policies.get.return_value = (
+            MockCAPoliciesResponse([policy])
+        )
+
+        result = await check_privileged_roles_mfa(mock_graph_client)
+
+        assert result.status == "fail"
+        assert "4/14" in result.message
+        assert "roles_not_covered" in result.details
+
+    async def test_pass_when_multiple_policies_cover_all_roles(self, mock_graph_client):
+        """Should pass when multiple policies together cover all roles."""
+        # Split roles between two policies
+        half = len(self.ALL_ROLE_IDS) // 2
+        policy1 = self._create_mfa_policy(
+            policy_id="p1",
+            name="Policy 1",
+            include_roles=self.ALL_ROLE_IDS[:half],
+        )
+        policy2 = self._create_mfa_policy(
+            policy_id="p2",
+            name="Policy 2",
+            include_roles=self.ALL_ROLE_IDS[half:],
+        )
+        mock_graph_client.identity.conditional_access.policies.get.return_value = (
+            MockCAPoliciesResponse([policy1, policy2])
+        )
+
+        result = await check_privileged_roles_mfa(mock_graph_client)
+
+        assert result.status == "pass"
+        assert len(result.details["enforced_policies"]) == 2
+
+    async def test_warning_when_only_report_only_policies(self, mock_graph_client):
+        """Should warn when only report-only policies exist."""
+        policy = self._create_mfa_policy(state="enabledForReportingButNotEnforced")
+        mock_graph_client.identity.conditional_access.policies.get.return_value = (
+            MockCAPoliciesResponse([policy])
+        )
+
+        result = await check_privileged_roles_mfa(mock_graph_client)
+
+        assert result.status == "warning"
+        assert "report-only" in result.message
+
+    async def test_warning_when_policy_has_exclusions(self, mock_graph_client):
+        """Should warn when policy has exclusions."""
+        policy = self._create_mfa_policy(exclude_users=["break-glass-account"])
+        mock_graph_client.identity.conditional_access.policies.get.return_value = (
+            MockCAPoliciesResponse([policy])
+        )
+
+        result = await check_privileged_roles_mfa(mock_graph_client)
+
+        assert result.status == "warning"
+        assert "exclusions" in result.message
+
+    async def test_fail_when_policy_not_targeting_all_apps(self, mock_graph_client):
+        """Should fail when policy doesn't target all applications."""
+        policy = MockConditionalAccessPolicy(
+            id="policy-1",
+            display_name="Limited MFA",
+            state="enabled",
+            conditions=MockCAConditions(
+                users=MockCAUsers(include_roles=self.ALL_ROLE_IDS),
+                applications=MockCAApplications(
+                    include_applications=["specific-app-id"]  # Not "All"
+                ),
+            ),
+            grant_controls=MockCAGrantControls(built_in_controls=["mfa"]),
+        )
+        mock_graph_client.identity.conditional_access.policies.get.return_value = (
+            MockCAPoliciesResponse([policy])
+        )
+
+        result = await check_privileged_roles_mfa(mock_graph_client)
+
+        assert result.status == "fail"
+
+    async def test_fail_when_policy_has_no_mfa_control(self, mock_graph_client):
+        """Should fail when policy doesn't require MFA."""
+        policy = MockConditionalAccessPolicy(
+            id="policy-1",
+            display_name="No MFA Policy",
+            state="enabled",
+            conditions=MockCAConditions(
+                users=MockCAUsers(include_roles=self.ALL_ROLE_IDS),
+                applications=MockCAApplications(include_applications=["All"]),
+            ),
+            grant_controls=MockCAGrantControls(built_in_controls=["compliantDevice"]),
+        )
+        mock_graph_client.identity.conditional_access.policies.get.return_value = (
+            MockCAPoliciesResponse([policy])
+        )
+
+        result = await check_privileged_roles_mfa(mock_graph_client)
+
+        assert result.status == "fail"
+
+    async def test_disabled_policy_is_ignored(self, mock_graph_client):
+        """Should ignore disabled policies."""
+        policy = self._create_mfa_policy(state="disabled")
+        mock_graph_client.identity.conditional_access.policies.get.return_value = (
+            MockCAPoliciesResponse([policy])
+        )
+
+        result = await check_privileged_roles_mfa(mock_graph_client)
+
+        assert result.status == "fail"
+
+    async def test_details_include_covered_role_names(self, mock_graph_client):
+        """Should include role names in policy details."""
+        # Only cover Global Administrator
+        policy = self._create_mfa_policy(
+            include_roles=["62e90394-69f5-4237-9190-012177145e10"]
+        )
+        mock_graph_client.identity.conditional_access.policies.get.return_value = (
+            MockCAPoliciesResponse([policy])
+        )
+
+        result = await check_privileged_roles_mfa(mock_graph_client)
+
+        # Should fail since not all roles covered, but check the details
+        assert result.status == "fail"
+        assert "Global Administrator" in result.details["enforced_policies"][0]["covered_roles"]
