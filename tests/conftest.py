@@ -15,6 +15,10 @@ def mock_graph_client():
     client.role_management.directory.role_assignments.get = AsyncMock()
     client.service_principals.get = AsyncMock()
     client.identity.conditional_access.policies.get = AsyncMock()
+    # For reviewer resolution
+    client.users.by_user_id = MagicMock(return_value=MagicMock(get=AsyncMock()))
+    client.groups.by_group_id = MagicMock(return_value=MagicMock(get=AsyncMock()))
+    client.directory_roles.by_directory_role_id = MagicMock(return_value=MagicMock(get=AsyncMock()))
     return client
 
 
@@ -32,10 +36,35 @@ class MockAuthorizationPolicy:
         )
 
 
+class MockReviewerScope:
+    def __init__(self, query: str):
+        self.query = query
+        self.query_type = "MicrosoftGraph"
+        self.query_root = None
+
+
 class MockAdminConsentRequestPolicy:
     def __init__(self, is_enabled: bool, reviewers: list | None = None):
         self.is_enabled = is_enabled
         self.reviewers = reviewers
+
+
+class MockUser:
+    def __init__(self, id: str, display_name: str):
+        self.id = id
+        self.display_name = display_name
+
+
+class MockGroup:
+    def __init__(self, id: str, display_name: str):
+        self.id = id
+        self.display_name = display_name
+
+
+class MockDirectoryRoleInfo:
+    def __init__(self, id: str, display_name: str):
+        self.id = id
+        self.display_name = display_name
 
 
 class MockDirectoryRole:

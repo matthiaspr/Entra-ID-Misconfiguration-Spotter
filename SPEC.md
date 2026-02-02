@@ -354,10 +354,10 @@ ALL_CHECKS: list[Check] = [
 
 | | |
 |---|---|
-| **API** | `GET /policies/adminConsentRequestPolicy` |
-| **Permission** | `Policy.Read.All` |
-| **Logic** | Check `isEnabled` and `reviewers` array |
-| **PASS** | `isEnabled: true` AND `reviewers` is non-empty |
+| **API** | `GET /policies/adminConsentRequestPolicy`, plus `/users/{id}`, `/groups/{id}`, `/directoryRoles/{id}` to resolve reviewer names |
+| **Permission** | `Policy.Read.All`, `User.Read.All`, `Group.Read.All` |
+| **Logic** | Check `isEnabled` and `reviewers` array; resolve reviewer display names |
+| **PASS** | `isEnabled: true` AND `reviewers` is non-empty (displays reviewer names) |
 | **FAIL** | `isEnabled: false` |
 | **WARN** | `isEnabled: true` but `reviewers` is empty |
 
@@ -395,15 +395,17 @@ These roles are dangerous because they allow privilege escalation:
 | `Policy.Read.All` | Application | Read authorization and consent policies |
 | `RoleManagement.Read.Directory` | Application | Read directory role assignments |
 | `Application.Read.All` | Application | Read service principal app role assignments |
+| `User.Read.All` | Application | Resolve reviewer user display names |
+| `Group.Read.All` | Application | Resolve reviewer group display names |
 
-**Total: 3 application permissions** (read-only)
+**Total: 5 application permissions** (read-only)
 
 ---
 
 ## Service Principal Setup
 
 1. Register an app in Entra ID
-2. Add application permissions: `Policy.Read.All`, `RoleManagement.Read.Directory`, `Application.Read.All`
+2. Add application permissions: `Policy.Read.All`, `RoleManagement.Read.Directory`, `Application.Read.All`, `User.Read.All`, `Group.Read.All`
 3. Grant admin consent
 4. Create a client secret
 5. Note: Tenant ID, Client ID, Client Secret

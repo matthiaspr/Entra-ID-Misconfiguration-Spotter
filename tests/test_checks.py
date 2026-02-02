@@ -15,6 +15,10 @@ from entra_spotter.checks.privileged_roles_mfa import check_privileged_roles_mfa
 from conftest import (
     MockAuthorizationPolicy,
     MockAdminConsentRequestPolicy,
+    MockReviewerScope,
+    MockUser,
+    MockGroup,
+    MockDirectoryRoleInfo,
     MockRoleMember,
     MockRoleAssignment,
     MockRoleAssignmentsResponse,
@@ -141,17 +145,113 @@ class TestUserConsent:
 class TestAdminConsentWorkflow:
     """Tests for admin consent workflow check."""
 
-    async def test_pass_when_enabled_with_reviewers(self, mock_graph_client):
-        """Should pass when workflow is enabled with reviewers."""
+    async def test_pass_with_user_reviewer_resolved(self, mock_graph_client):
+        """Should pass and show user display name when resolved."""
+        user_id = "906e0ee5-6372-4cc8-8248-fdf2846b48ed"
         mock_graph_client.policies.admin_consent_request_policy.get.return_value = (
-            MockAdminConsentRequestPolicy(is_enabled=True, reviewers=["reviewer1", "reviewer2"])
+            MockAdminConsentRequestPolicy(
+                is_enabled=True,
+                reviewers=[MockReviewerScope(f"/users/{user_id}")]
+            )
+        )
+        mock_graph_client.users.by_user_id.return_value.get.return_value = (
+            MockUser(id=user_id, display_name="John Doe")
         )
 
         result = await check_admin_consent_workflow(mock_graph_client)
 
         assert result.status == "pass"
         assert result.check_id == "admin-consent-workflow"
+        assert "1 reviewer(s)" in result.message
+        assert "John Doe" in result.message
+        assert result.details["reviewers"][0]["type"] == "user"
+        assert result.details["reviewers"][0]["display_name"] == "John Doe"
+
+    async def test_pass_with_group_reviewer_resolved(self, mock_graph_client):
+        """Should pass and show group display name when resolved."""
+        group_id = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+        mock_graph_client.policies.admin_consent_request_policy.get.return_value = (
+            MockAdminConsentRequestPolicy(
+                is_enabled=True,
+                reviewers=[MockReviewerScope(f"/groups/{group_id}")]
+            )
+        )
+        mock_graph_client.groups.by_group_id.return_value.get.return_value = (
+            MockGroup(id=group_id, display_name="IT Admins")
+        )
+
+        result = await check_admin_consent_workflow(mock_graph_client)
+
+        assert result.status == "pass"
+        assert "IT Admins" in result.message
+        assert result.details["reviewers"][0]["type"] == "group"
+        assert result.details["reviewers"][0]["display_name"] == "IT Admins"
+
+    async def test_pass_with_role_reviewer_resolved(self, mock_graph_client):
+        """Should pass and show role display name when resolved."""
+        role_id = "b2c3d4e5-f6a7-8901-bcde-f23456789012"
+        mock_graph_client.policies.admin_consent_request_policy.get.return_value = (
+            MockAdminConsentRequestPolicy(
+                is_enabled=True,
+                reviewers=[MockReviewerScope(f"/directoryRoles/{role_id}")]
+            )
+        )
+        mock_graph_client.directory_roles.by_directory_role_id.return_value.get.return_value = (
+            MockDirectoryRoleInfo(id=role_id, display_name="Global Administrator")
+        )
+
+        result = await check_admin_consent_workflow(mock_graph_client)
+
+        assert result.status == "pass"
+        assert "Global Administrator" in result.message
+        assert result.details["reviewers"][0]["type"] == "role"
+        assert result.details["reviewers"][0]["display_name"] == "Global Administrator"
+
+    async def test_pass_with_multiple_reviewers(self, mock_graph_client):
+        """Should pass and show all reviewer names."""
+        user_id = "user-123"
+        group_id = "group-456"
+        mock_graph_client.policies.admin_consent_request_policy.get.return_value = (
+            MockAdminConsentRequestPolicy(
+                is_enabled=True,
+                reviewers=[
+                    MockReviewerScope(f"/users/{user_id}"),
+                    MockReviewerScope(f"/groups/{group_id}"),
+                ]
+            )
+        )
+        mock_graph_client.users.by_user_id.return_value.get.return_value = (
+            MockUser(id=user_id, display_name="Alice")
+        )
+        mock_graph_client.groups.by_group_id.return_value.get.return_value = (
+            MockGroup(id=group_id, display_name="Security Team")
+        )
+
+        result = await check_admin_consent_workflow(mock_graph_client)
+
+        assert result.status == "pass"
         assert "2 reviewer(s)" in result.message
+        assert "Alice" in result.message
+        assert "Security Team" in result.message
+        assert len(result.details["reviewers"]) == 2
+
+    async def test_pass_with_unresolvable_reviewer(self, mock_graph_client):
+        """Should pass and show ID when reviewer cannot be resolved."""
+        user_id = "deleted-user-id"
+        mock_graph_client.policies.admin_consent_request_policy.get.return_value = (
+            MockAdminConsentRequestPolicy(
+                is_enabled=True,
+                reviewers=[MockReviewerScope(f"/users/{user_id}")]
+            )
+        )
+        mock_graph_client.users.by_user_id.return_value.get.side_effect = Exception("Not found")
+
+        result = await check_admin_consent_workflow(mock_graph_client)
+
+        assert result.status == "pass"
+        assert "1 reviewer(s)" in result.message
+        assert f"user: {user_id}" in result.message
+        assert result.details["reviewers"][0]["display_name"] is None
 
     async def test_fail_when_disabled(self, mock_graph_client):
         """Should fail when workflow is disabled."""

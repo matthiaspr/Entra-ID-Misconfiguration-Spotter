@@ -72,6 +72,8 @@ The service principal needs these MS Graph application permissions:
 - `Policy.Read.All`
 - `RoleManagement.Read.Directory`
 - `Application.Read.All`
+- `User.Read.All` - for resolving reviewer display names
+- `Group.Read.All` - for resolving reviewer display names
 
 ## Development
 

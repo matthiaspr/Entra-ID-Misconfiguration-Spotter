@@ -65,7 +65,7 @@ Checks are explicitly registered in `checks/__init__.py` (no auto-discovery).
 | ID | File | MS Graph API |
 |----|------|--------------|
 | `user-consent` | `user_consent.py` | `GET /policies/authorizationPolicy` |
-| `admin-consent-workflow` | `admin_consent_workflow.py` | `GET /policies/adminConsentRequestPolicy` |
+| `admin-consent-workflow` | `admin_consent_workflow.py` | `GET /policies/adminConsentRequestPolicy`, resolves `/users/{id}`, `/groups/{id}`, `/directoryRoles/{id}` |
 | `sp-admin-roles` | `sp_admin_roles.py` | `GET /roleManagement/directory/roleAssignments?$expand=principal` |
 | `sp-graph-roles` | `sp_graph_roles.py` | `GET /servicePrincipals?$expand=appRoleAssignments` |
 | `legacy-auth-blocked` | `legacy_auth_blocked.py` | `GET /identity/conditionalAccess/policies` |
@@ -95,6 +95,8 @@ export AZURE_CLIENT_SECRET="your-client-secret"
 - `Policy.Read.All` (Application)
 - `RoleManagement.Read.Directory` (Application)
 - `Application.Read.All` (Application)
+- `User.Read.All` (Application) - for resolving reviewer display names
+- `Group.Read.All` (Application) - for resolving reviewer display names
 
 All are read-only. The tool never modifies any Entra ID configuration.
 
