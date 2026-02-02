@@ -69,6 +69,7 @@ Checks are explicitly registered in `checks/__init__.py` (no auto-discovery).
 | `sp-admin-roles` | `sp_admin_roles.py` | `GET /roleManagement/directory/roleAssignments?$expand=principal` |
 | `sp-graph-roles` | `sp_graph_roles.py` | `GET /servicePrincipals?$expand=appRoleAssignments` |
 | `legacy-auth-blocked` | `legacy_auth_blocked.py` | `GET /identity/conditionalAccess/policies` |
+| `device-code-blocked` | `device_code_blocked.py` | `GET /identity/conditionalAccess/policies` |
 
 ## Design Decisions
 

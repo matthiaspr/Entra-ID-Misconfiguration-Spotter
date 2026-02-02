@@ -134,16 +134,23 @@ class MockCAApplications:
         self.exclude_applications = exclude_applications
 
 
+class MockCAAuthenticationFlows:
+    def __init__(self, transfer_methods: list[str] | None = None):
+        self.transfer_methods = transfer_methods
+
+
 class MockCAConditions:
     def __init__(
         self,
         client_app_types: list[str] | None = None,
         users: MockCAUsers | None = None,
         applications: MockCAApplications | None = None,
+        authentication_flows: MockCAAuthenticationFlows | None = None,
     ):
         self.client_app_types = client_app_types
         self.users = users
         self.applications = applications
+        self.authentication_flows = authentication_flows
 
 
 class MockConditionalAccessPolicy:

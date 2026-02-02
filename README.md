@@ -62,6 +62,7 @@ uv run entra-spotter --list-checks
 | `sp-admin-roles` | Identifies service principals in privileged admin roles |
 | `sp-graph-roles` | Identifies service principals with sensitive MS Graph app roles |
 | `legacy-auth-blocked` | Verifies a CA policy blocks legacy authentication protocols |
+| `device-code-blocked` | Verifies a CA policy blocks device code flow authentication |
 
 ## Required Permissions
 

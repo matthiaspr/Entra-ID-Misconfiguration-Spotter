@@ -9,6 +9,7 @@ from entra_spotter.checks.admin_consent_workflow import check_admin_consent_work
 from entra_spotter.checks.sp_admin_roles import check_sp_admin_roles
 from entra_spotter.checks.sp_graph_roles import check_sp_graph_roles
 from entra_spotter.checks.legacy_auth_blocked import check_legacy_auth_blocked
+from entra_spotter.checks.device_code_blocked import check_device_code_blocked
 
 from conftest import (
     MockAuthorizationPolicy,
@@ -22,6 +23,7 @@ from conftest import (
     MockCAGrantControls,
     MockCAUsers,
     MockCAApplications,
+    MockCAAuthenticationFlows,
     MockCAConditions,
     MockConditionalAccessPolicy,
     MockCAPoliciesResponse,
@@ -568,5 +570,207 @@ class TestLegacyAuthBlocked:
         )
 
         result = await check_legacy_auth_blocked(mock_graph_client)
+
+        assert result.status == "fail"
+
+
+class TestDeviceCodeBlocked:
+    """Tests for device code flow blocking check."""
+
+    def _create_blocking_policy(
+        self,
+        policy_id: str = "policy-1",
+        name: str = "Block Device Code Flow",
+        state: str = "enabled",
+        exclude_users: list[str] | None = None,
+        exclude_groups: list[str] | None = None,
+        exclude_roles: list[str] | None = None,
+        exclude_applications: list[str] | None = None,
+    ) -> MockConditionalAccessPolicy:
+        """Helper to create a valid device code flow blocking policy."""
+        return MockConditionalAccessPolicy(
+            id=policy_id,
+            display_name=name,
+            state=state,
+            conditions=MockCAConditions(
+                authentication_flows=MockCAAuthenticationFlows(
+                    transfer_methods=["deviceCodeFlow"]
+                ),
+                users=MockCAUsers(
+                    include_users=["All"],
+                    exclude_users=exclude_users,
+                    exclude_groups=exclude_groups,
+                    exclude_roles=exclude_roles,
+                ),
+                applications=MockCAApplications(
+                    include_applications=["All"],
+                    exclude_applications=exclude_applications,
+                ),
+            ),
+            grant_controls=MockCAGrantControls(built_in_controls=["block"]),
+        )
+
+    async def test_pass_when_enforced_policy_exists_no_exclusions(self, mock_graph_client):
+        """Should pass when an enforced policy blocks device code flow without exclusions."""
+        mock_graph_client.identity.conditional_access.policies.get.return_value = (
+            MockCAPoliciesResponse([self._create_blocking_policy()])
+        )
+
+        result = await check_device_code_blocked(mock_graph_client)
+
+        assert result.status == "pass"
+        assert result.check_id == "device-code-blocked"
+        assert "1 policy(ies) block device code flow" in result.message
+
+    async def test_fail_when_no_policies_exist(self, mock_graph_client):
+        """Should fail when no CA policies exist."""
+        mock_graph_client.identity.conditional_access.policies.get.return_value = (
+            MockCAPoliciesResponse([])
+        )
+
+        result = await check_device_code_blocked(mock_graph_client)
+
+        assert result.status == "fail"
+        assert result.check_id == "device-code-blocked"
+        assert result.recommendation is not None
+
+    async def test_fail_when_no_blocking_policies_exist(self, mock_graph_client):
+        """Should fail when policies exist but none block device code flow."""
+        # Policy that doesn't block device code flow (no auth flows condition)
+        policy = MockConditionalAccessPolicy(
+            id="policy-1",
+            display_name="Some Other Policy",
+            state="enabled",
+            conditions=MockCAConditions(
+                applications=MockCAApplications(include_applications=["All"]),
+            ),
+            grant_controls=MockCAGrantControls(built_in_controls=["mfa"]),
+        )
+        mock_graph_client.identity.conditional_access.policies.get.return_value = (
+            MockCAPoliciesResponse([policy])
+        )
+
+        result = await check_device_code_blocked(mock_graph_client)
+
+        assert result.status == "fail"
+
+    async def test_warning_when_only_report_only_policy_exists(self, mock_graph_client):
+        """Should warn when only report-only policies exist."""
+        policy = self._create_blocking_policy(
+            state="enabledForReportingButNotEnforced"
+        )
+        mock_graph_client.identity.conditional_access.policies.get.return_value = (
+            MockCAPoliciesResponse([policy])
+        )
+
+        result = await check_device_code_blocked(mock_graph_client)
+
+        assert result.status == "warning"
+        assert "report-only" in result.message
+        assert len(result.details["report_only_policies"]) == 1
+        assert len(result.details["enforced_policies"]) == 0
+
+    async def test_warning_when_policy_has_user_exclusions(self, mock_graph_client):
+        """Should warn when policy has user exclusions."""
+        policy = self._create_blocking_policy(
+            exclude_users=["user-id-1", "user-id-2"]
+        )
+        mock_graph_client.identity.conditional_access.policies.get.return_value = (
+            MockCAPoliciesResponse([policy])
+        )
+
+        result = await check_device_code_blocked(mock_graph_client)
+
+        assert result.status == "warning"
+        assert "exclusions" in result.message
+        assert result.details["enforced_policies"][0]["exclusions"]["users"] == [
+            "user-id-1",
+            "user-id-2",
+        ]
+
+    async def test_warning_when_policy_has_group_exclusions(self, mock_graph_client):
+        """Should warn when policy has group exclusions."""
+        policy = self._create_blocking_policy(exclude_groups=["group-id-1"])
+        mock_graph_client.identity.conditional_access.policies.get.return_value = (
+            MockCAPoliciesResponse([policy])
+        )
+
+        result = await check_device_code_blocked(mock_graph_client)
+
+        assert result.status == "warning"
+        assert result.details["enforced_policies"][0]["exclusions"]["groups"] == [
+            "group-id-1"
+        ]
+
+    async def test_fail_when_policy_not_targeting_all_apps(self, mock_graph_client):
+        """Should fail when policy doesn't target all applications."""
+        policy = MockConditionalAccessPolicy(
+            id="policy-1",
+            display_name="Limited Block",
+            state="enabled",
+            conditions=MockCAConditions(
+                authentication_flows=MockCAAuthenticationFlows(
+                    transfer_methods=["deviceCodeFlow"]
+                ),
+                applications=MockCAApplications(
+                    include_applications=["specific-app-id"]  # Not "All"
+                ),
+            ),
+            grant_controls=MockCAGrantControls(built_in_controls=["block"]),
+        )
+        mock_graph_client.identity.conditional_access.policies.get.return_value = (
+            MockCAPoliciesResponse([policy])
+        )
+
+        result = await check_device_code_blocked(mock_graph_client)
+
+        assert result.status == "fail"
+
+    async def test_fail_when_policy_has_wrong_transfer_method(self, mock_graph_client):
+        """Should fail when policy targets different transfer method."""
+        policy = MockConditionalAccessPolicy(
+            id="policy-1",
+            display_name="Wrong Method",
+            state="enabled",
+            conditions=MockCAConditions(
+                authentication_flows=MockCAAuthenticationFlows(
+                    transfer_methods=["authenticationTransfer"]  # Not deviceCodeFlow
+                ),
+                applications=MockCAApplications(include_applications=["All"]),
+            ),
+            grant_controls=MockCAGrantControls(built_in_controls=["block"]),
+        )
+        mock_graph_client.identity.conditional_access.policies.get.return_value = (
+            MockCAPoliciesResponse([policy])
+        )
+
+        result = await check_device_code_blocked(mock_graph_client)
+
+        assert result.status == "fail"
+
+    async def test_pass_with_multiple_enforced_policies(self, mock_graph_client):
+        """Should pass and report multiple enforced policies."""
+        policies = [
+            self._create_blocking_policy(policy_id="p1", name="Policy 1"),
+            self._create_blocking_policy(policy_id="p2", name="Policy 2"),
+        ]
+        mock_graph_client.identity.conditional_access.policies.get.return_value = (
+            MockCAPoliciesResponse(policies)
+        )
+
+        result = await check_device_code_blocked(mock_graph_client)
+
+        assert result.status == "pass"
+        assert "2 policy(ies)" in result.message
+        assert len(result.details["enforced_policies"]) == 2
+
+    async def test_disabled_policy_is_ignored(self, mock_graph_client):
+        """Should ignore disabled policies."""
+        policy = self._create_blocking_policy(state="disabled")
+        mock_graph_client.identity.conditional_access.policies.get.return_value = (
+            MockCAPoliciesResponse([policy])
+        )
+
+        result = await check_device_code_blocked(mock_graph_client)
 
         assert result.status == "fail"
