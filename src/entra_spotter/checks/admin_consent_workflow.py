@@ -30,7 +30,7 @@ async def _resolve_reviewer(client: GraphServiceClient, query: str) -> dict:
         entity_id = user_match.group(1)
         try:
             user = await client.users.by_user_id(entity_id).get()
-            return {"type": "user", "id": entity_id, "display_name": user.display_name}
+            return {"type": "user", "id": entity_id, "display_name": user.user_principal_name}
         except Exception:
             return {"type": "user", "id": entity_id, "display_name": None}
 

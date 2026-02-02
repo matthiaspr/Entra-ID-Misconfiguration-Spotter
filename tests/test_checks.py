@@ -147,7 +147,7 @@ class TestAdminConsentWorkflow:
     """Tests for admin consent workflow check."""
 
     async def test_pass_with_user_reviewer_resolved(self, mock_graph_client):
-        """Should pass and show user display name when resolved."""
+        """Should pass and show user UPN when resolved."""
         user_id = "906e0ee5-6372-4cc8-8248-fdf2846b48ed"
         mock_graph_client.policies.admin_consent_request_policy.get.return_value = (
             MockAdminConsentRequestPolicy(
@@ -156,7 +156,7 @@ class TestAdminConsentWorkflow:
             )
         )
         mock_graph_client.users.by_user_id.return_value.get.return_value = (
-            MockUser(id=user_id, display_name="John Doe")
+            MockUser(id=user_id, user_principal_name="john.doe@contoso.com")
         )
 
         result = await check_admin_consent_workflow(mock_graph_client)
@@ -164,9 +164,9 @@ class TestAdminConsentWorkflow:
         assert result.status == "pass"
         assert result.check_id == "admin-consent-workflow"
         assert "1 reviewer(s)" in result.message
-        assert "John Doe" in result.message
+        assert "john.doe@contoso.com" in result.message
         assert result.details["reviewers"][0]["type"] == "user"
-        assert result.details["reviewers"][0]["display_name"] == "John Doe"
+        assert result.details["reviewers"][0]["display_name"] == "john.doe@contoso.com"
 
     async def test_pass_with_group_reviewer_resolved(self, mock_graph_client):
         """Should pass and show group display name when resolved."""
@@ -222,7 +222,7 @@ class TestAdminConsentWorkflow:
             )
         )
         mock_graph_client.users.by_user_id.return_value.get.return_value = (
-            MockUser(id=user_id, display_name="Alice")
+            MockUser(id=user_id, user_principal_name="alice@contoso.com")
         )
         mock_graph_client.groups.by_group_id.return_value.get.return_value = (
             MockGroup(id=group_id, display_name="Security Team")
@@ -232,7 +232,7 @@ class TestAdminConsentWorkflow:
 
         assert result.status == "pass"
         assert "2 reviewer(s)" in result.message
-        assert "Alice" in result.message
+        assert "alice@contoso.com" in result.message
         assert "Security Team" in result.message
         assert len(result.details["reviewers"]) == 2
 
@@ -264,15 +264,15 @@ class TestAdminConsentWorkflow:
             )
         )
         mock_graph_client.users.by_user_id.return_value.get.return_value = (
-            MockUser(id=user_id, display_name="Jane Smith")
+            MockUser(id=user_id, user_principal_name="jane.smith@contoso.com")
         )
 
         result = await check_admin_consent_workflow(mock_graph_client)
 
         assert result.status == "pass"
-        assert "Jane Smith" in result.message
+        assert "jane.smith@contoso.com" in result.message
         assert result.details["reviewers"][0]["type"] == "user"
-        assert result.details["reviewers"][0]["display_name"] == "Jane Smith"
+        assert result.details["reviewers"][0]["display_name"] == "jane.smith@contoso.com"
 
     async def test_pass_with_role_assignment_query(self, mock_graph_client):
         """Should resolve role definition ID from role assignment filter query."""
@@ -310,7 +310,7 @@ class TestAdminConsentWorkflow:
             )
         )
         mock_graph_client.users.by_user_id.return_value.get.return_value = (
-            MockUser(id=user_id, display_name="Jane Smith")
+            MockUser(id=user_id, user_principal_name="jane.smith@contoso.com")
         )
         mock_graph_client.role_management.directory.role_definitions.by_unified_role_definition_id.return_value.get.return_value = (
             MockRoleDefinition(id=role_def_id, display_name="Global Administrator")
@@ -320,7 +320,7 @@ class TestAdminConsentWorkflow:
 
         assert result.status == "pass"
         assert "2 reviewer(s)" in result.message
-        assert "Jane Smith" in result.message
+        assert "jane.smith@contoso.com" in result.message
         assert "Users with Global Administrator role" in result.message
 
     async def test_fail_when_disabled(self, mock_graph_client):

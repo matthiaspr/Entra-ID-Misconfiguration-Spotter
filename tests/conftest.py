@@ -54,9 +54,10 @@ class MockAdminConsentRequestPolicy:
 
 
 class MockUser:
-    def __init__(self, id: str, display_name: str):
+    def __init__(self, id: str, user_principal_name: str, display_name: str | None = None):
         self.id = id
-        self.display_name = display_name
+        self.user_principal_name = user_principal_name
+        self.display_name = display_name or user_principal_name
 
 
 class MockGroup:
