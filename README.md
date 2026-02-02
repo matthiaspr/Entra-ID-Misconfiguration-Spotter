@@ -64,6 +64,7 @@ uv run entra-spotter --list-checks
 | `legacy-auth-blocked` | Verifies a CA policy blocks legacy authentication protocols |
 | `device-code-blocked` | Verifies a CA policy blocks device code flow authentication |
 | `privileged-roles-mfa` | Verifies MFA is required for all 14 privileged admin roles |
+| `global-admin-count` | Verifies 2-8 cloud-only users in Global Administrator role |
 
 ## Required Permissions
 

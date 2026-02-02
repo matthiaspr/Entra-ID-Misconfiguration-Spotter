@@ -15,9 +15,11 @@ def mock_graph_client():
     client.role_management.directory.role_assignments.get = AsyncMock()
     client.service_principals.get = AsyncMock()
     client.identity.conditional_access.policies.get = AsyncMock()
-    # For reviewer resolution
+    # For reviewer resolution and user lookup
     client.users.by_user_id = MagicMock(return_value=MagicMock(get=AsyncMock()))
-    client.groups.by_group_id = MagicMock(return_value=MagicMock(get=AsyncMock()))
+    client.groups.by_group_id = MagicMock(
+        return_value=MagicMock(get=AsyncMock(), members=MagicMock(get=AsyncMock()))
+    )
     client.directory_roles.by_directory_role_id = MagicMock(return_value=MagicMock(get=AsyncMock()))
     # For role definition resolution
     client.role_management.directory.role_definitions.by_unified_role_definition_id = MagicMock(
@@ -54,16 +56,28 @@ class MockAdminConsentRequestPolicy:
 
 
 class MockUser:
-    def __init__(self, id: str, user_principal_name: str, display_name: str | None = None):
+    def __init__(
+        self,
+        id: str,
+        user_principal_name: str,
+        display_name: str | None = None,
+        on_premises_sync_enabled: bool | None = None,
+    ):
         self.id = id
         self.user_principal_name = user_principal_name
         self.display_name = display_name or user_principal_name
+        self.on_premises_sync_enabled = on_premises_sync_enabled
 
 
 class MockGroup:
     def __init__(self, id: str, display_name: str):
         self.id = id
         self.display_name = display_name
+
+
+class MockGroupMembersResponse:
+    def __init__(self, members: list):
+        self.value = members
 
 
 class MockDirectoryRoleInfo:

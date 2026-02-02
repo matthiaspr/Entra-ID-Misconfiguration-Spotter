@@ -11,6 +11,7 @@ from entra_spotter.checks.sp_graph_roles import check_sp_graph_roles
 from entra_spotter.checks.legacy_auth_blocked import check_legacy_auth_blocked
 from entra_spotter.checks.device_code_blocked import check_device_code_blocked
 from entra_spotter.checks.privileged_roles_mfa import check_privileged_roles_mfa, PRIVILEGED_ROLES
+from entra_spotter.checks.global_admin_count import check_global_admin_count, GLOBAL_ADMIN_ROLE_ID
 
 from conftest import (
     MockAuthorizationPolicy,
@@ -18,6 +19,7 @@ from conftest import (
     MockReviewerScope,
     MockUser,
     MockGroup,
+    MockGroupMembersResponse,
     MockDirectoryRoleInfo,
     MockRoleDefinition,
     MockRoleMember,
@@ -1203,3 +1205,265 @@ class TestPrivilegedRolesMfa:
         # Should fail since not all roles covered, but check the details
         assert result.status == "fail"
         assert "Global Administrator" in result.details["enforced_policies"][0]["covered_roles"]
+
+
+class TestGlobalAdminCount:
+    """Tests for global admin count check."""
+
+    def _create_user_principal(self, user_id: str, display_name: str):
+        """Create a mock user principal for role assignment."""
+        principal = MockRoleMember(
+            id=user_id,
+            display_name=display_name,
+            odata_type="#microsoft.graph.user",
+        )
+        return principal
+
+    def _create_sp_principal(self, sp_id: str, display_name: str):
+        """Create a mock service principal for role assignment."""
+        principal = MockRoleMember(
+            id=sp_id,
+            display_name=display_name,
+            odata_type="#microsoft.graph.servicePrincipal",
+        )
+        return principal
+
+    def _create_group_principal(self, group_id: str, display_name: str):
+        """Create a mock group principal for role assignment."""
+        principal = MockRoleMember(
+            id=group_id,
+            display_name=display_name,
+            odata_type="#microsoft.graph.group",
+        )
+        return principal
+
+    async def test_pass_with_valid_user_count(self, mock_graph_client):
+        """Should pass with 2-8 cloud-only users."""
+        user1 = self._create_user_principal("user-1", "Admin One")
+        user2 = self._create_user_principal("user-2", "Admin Two")
+        user3 = self._create_user_principal("user-3", "Admin Three")
+
+        mock_graph_client.role_management.directory.role_assignments.get.return_value = (
+            MockRoleAssignmentsResponse([
+                MockRoleAssignment(GLOBAL_ADMIN_ROLE_ID, "user-1", user1),
+                MockRoleAssignment(GLOBAL_ADMIN_ROLE_ID, "user-2", user2),
+                MockRoleAssignment(GLOBAL_ADMIN_ROLE_ID, "user-3", user3),
+            ])
+        )
+
+        # Mock user lookups - all cloud-only
+        def user_lookup(user_id):
+            users = {
+                "user-1": MockUser("user-1", "admin1@contoso.com", on_premises_sync_enabled=False),
+                "user-2": MockUser("user-2", "admin2@contoso.com", on_premises_sync_enabled=None),
+                "user-3": MockUser("user-3", "admin3@contoso.com", on_premises_sync_enabled=False),
+            }
+            mock = AsyncMock(return_value=users[user_id])
+            return type("Mock", (), {"get": mock})()
+
+        mock_graph_client.users.by_user_id.side_effect = user_lookup
+
+        result = await check_global_admin_count(mock_graph_client)
+
+        assert result.status == "pass"
+        assert result.check_id == "global-admin-count"
+        assert "3 cloud-only user(s)" in result.message
+        assert "admin1@contoso.com" in result.message
+        assert result.details["user_count"] == 3
+
+    async def test_fail_with_too_few_users(self, mock_graph_client):
+        """Should fail with fewer than 2 users."""
+        user1 = self._create_user_principal("user-1", "Admin One")
+
+        mock_graph_client.role_management.directory.role_assignments.get.return_value = (
+            MockRoleAssignmentsResponse([
+                MockRoleAssignment(GLOBAL_ADMIN_ROLE_ID, "user-1", user1),
+            ])
+        )
+
+        mock_graph_client.users.by_user_id.return_value.get.return_value = (
+            MockUser("user-1", "admin1@contoso.com", on_premises_sync_enabled=False)
+        )
+
+        result = await check_global_admin_count(mock_graph_client)
+
+        assert result.status == "fail"
+        assert "Only 1 user(s)" in result.message
+        assert "minimum: 2" in result.message
+
+    async def test_fail_with_too_many_users(self, mock_graph_client):
+        """Should fail with more than 8 users."""
+        users = []
+        for i in range(9):
+            users.append(MockRoleAssignment(
+                GLOBAL_ADMIN_ROLE_ID,
+                f"user-{i}",
+                self._create_user_principal(f"user-{i}", f"Admin {i}"),
+            ))
+
+        mock_graph_client.role_management.directory.role_assignments.get.return_value = (
+            MockRoleAssignmentsResponse(users)
+        )
+
+        def user_lookup(user_id):
+            mock = AsyncMock(return_value=MockUser(
+                user_id, f"{user_id}@contoso.com", on_premises_sync_enabled=False
+            ))
+            return type("Mock", (), {"get": mock})()
+
+        mock_graph_client.users.by_user_id.side_effect = user_lookup
+
+        result = await check_global_admin_count(mock_graph_client)
+
+        assert result.status == "fail"
+        assert "9 user(s)" in result.message
+        assert "maximum: 8" in result.message
+
+    async def test_fail_with_synced_user(self, mock_graph_client):
+        """Should fail when a user is synced from on-premises AD."""
+        user1 = self._create_user_principal("user-1", "Admin One")
+        user2 = self._create_user_principal("user-2", "Admin Two")
+
+        mock_graph_client.role_management.directory.role_assignments.get.return_value = (
+            MockRoleAssignmentsResponse([
+                MockRoleAssignment(GLOBAL_ADMIN_ROLE_ID, "user-1", user1),
+                MockRoleAssignment(GLOBAL_ADMIN_ROLE_ID, "user-2", user2),
+            ])
+        )
+
+        def user_lookup(user_id):
+            users = {
+                "user-1": MockUser("user-1", "admin1@contoso.com", on_premises_sync_enabled=False),
+                "user-2": MockUser("user-2", "synced@contoso.com", on_premises_sync_enabled=True),
+            }
+            mock = AsyncMock(return_value=users[user_id])
+            return type("Mock", (), {"get": mock})()
+
+        mock_graph_client.users.by_user_id.side_effect = user_lookup
+
+        result = await check_global_admin_count(mock_graph_client)
+
+        assert result.status == "fail"
+        assert "synced" in result.message.lower()
+        assert "synced@contoso.com" in result.message
+        assert result.details["synced_user_count"] == 1
+
+    async def test_service_principals_counted_separately(self, mock_graph_client):
+        """Service principals should not count toward the 2-8 user limit."""
+        user1 = self._create_user_principal("user-1", "Admin One")
+        user2 = self._create_user_principal("user-2", "Admin Two")
+        sp1 = self._create_sp_principal("sp-1", "Backup App")
+
+        mock_graph_client.role_management.directory.role_assignments.get.return_value = (
+            MockRoleAssignmentsResponse([
+                MockRoleAssignment(GLOBAL_ADMIN_ROLE_ID, "user-1", user1),
+                MockRoleAssignment(GLOBAL_ADMIN_ROLE_ID, "user-2", user2),
+                MockRoleAssignment(GLOBAL_ADMIN_ROLE_ID, "sp-1", sp1),
+            ])
+        )
+
+        def user_lookup(user_id):
+            users = {
+                "user-1": MockUser("user-1", "admin1@contoso.com", on_premises_sync_enabled=False),
+                "user-2": MockUser("user-2", "admin2@contoso.com", on_premises_sync_enabled=False),
+            }
+            mock = AsyncMock(return_value=users[user_id])
+            return type("Mock", (), {"get": mock})()
+
+        mock_graph_client.users.by_user_id.side_effect = user_lookup
+
+        result = await check_global_admin_count(mock_graph_client)
+
+        assert result.status == "pass"
+        assert result.details["user_count"] == 2
+        assert result.details["service_principal_count"] == 1
+        assert "Backup App" in result.details["service_principals"]
+        assert "Service principals:" in result.message
+
+    async def test_group_members_expanded(self, mock_graph_client):
+        """Should expand group membership to count users."""
+        group1 = self._create_group_principal("group-1", "Admin Group")
+
+        mock_graph_client.role_management.directory.role_assignments.get.return_value = (
+            MockRoleAssignmentsResponse([
+                MockRoleAssignment(GLOBAL_ADMIN_ROLE_ID, "group-1", group1),
+            ])
+        )
+
+        # Group members
+        group_member1 = MockRoleMember("user-1", "Admin One", "#microsoft.graph.user")
+        group_member2 = MockRoleMember("user-2", "Admin Two", "#microsoft.graph.user")
+
+        mock_graph_client.groups.by_group_id.return_value.members.get.return_value = (
+            MockGroupMembersResponse([group_member1, group_member2])
+        )
+
+        def user_lookup(user_id):
+            users = {
+                "user-1": MockUser("user-1", "admin1@contoso.com", on_premises_sync_enabled=False),
+                "user-2": MockUser("user-2", "admin2@contoso.com", on_premises_sync_enabled=False),
+            }
+            mock = AsyncMock(return_value=users[user_id])
+            return type("Mock", (), {"get": mock})()
+
+        mock_graph_client.users.by_user_id.side_effect = user_lookup
+
+        result = await check_global_admin_count(mock_graph_client)
+
+        assert result.status == "pass"
+        assert result.details["user_count"] == 2
+        assert "admin1@contoso.com" in result.details["users"]
+        assert "admin2@contoso.com" in result.details["users"]
+
+    async def test_pass_with_exactly_two_users(self, mock_graph_client):
+        """Should pass with exactly 2 users (minimum)."""
+        user1 = self._create_user_principal("user-1", "Admin One")
+        user2 = self._create_user_principal("user-2", "Admin Two")
+
+        mock_graph_client.role_management.directory.role_assignments.get.return_value = (
+            MockRoleAssignmentsResponse([
+                MockRoleAssignment(GLOBAL_ADMIN_ROLE_ID, "user-1", user1),
+                MockRoleAssignment(GLOBAL_ADMIN_ROLE_ID, "user-2", user2),
+            ])
+        )
+
+        def user_lookup(user_id):
+            users = {
+                "user-1": MockUser("user-1", "admin1@contoso.com", on_premises_sync_enabled=False),
+                "user-2": MockUser("user-2", "admin2@contoso.com", on_premises_sync_enabled=False),
+            }
+            mock = AsyncMock(return_value=users[user_id])
+            return type("Mock", (), {"get": mock})()
+
+        mock_graph_client.users.by_user_id.side_effect = user_lookup
+
+        result = await check_global_admin_count(mock_graph_client)
+
+        assert result.status == "pass"
+
+    async def test_pass_with_exactly_eight_users(self, mock_graph_client):
+        """Should pass with exactly 8 users (maximum)."""
+        assignments = []
+        for i in range(8):
+            assignments.append(MockRoleAssignment(
+                GLOBAL_ADMIN_ROLE_ID,
+                f"user-{i}",
+                self._create_user_principal(f"user-{i}", f"Admin {i}"),
+            ))
+
+        mock_graph_client.role_management.directory.role_assignments.get.return_value = (
+            MockRoleAssignmentsResponse(assignments)
+        )
+
+        def user_lookup(user_id):
+            mock = AsyncMock(return_value=MockUser(
+                user_id, f"{user_id}@contoso.com", on_premises_sync_enabled=False
+            ))
+            return type("Mock", (), {"get": mock})()
+
+        mock_graph_client.users.by_user_id.side_effect = user_lookup
+
+        result = await check_global_admin_count(mock_graph_client)
+
+        assert result.status == "pass"
+        assert result.details["user_count"] == 8

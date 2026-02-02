@@ -36,6 +36,7 @@ from entra_spotter.checks.sp_graph_roles import check_sp_graph_roles
 from entra_spotter.checks.legacy_auth_blocked import check_legacy_auth_blocked
 from entra_spotter.checks.device_code_blocked import check_device_code_blocked
 from entra_spotter.checks.privileged_roles_mfa import check_privileged_roles_mfa
+from entra_spotter.checks.global_admin_count import check_global_admin_count
 
 ALL_CHECKS: list[Check] = [
     Check(
@@ -72,5 +73,10 @@ ALL_CHECKS: list[Check] = [
         id="privileged-roles-mfa",
         name="MFA for Privileged Roles",
         run=check_privileged_roles_mfa,
+    ),
+    Check(
+        id="global-admin-count",
+        name="Global Administrator Count",
+        run=check_global_admin_count,
     ),
 ]
