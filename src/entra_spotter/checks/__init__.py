@@ -33,6 +33,7 @@ from entra_spotter.checks.user_consent import check_user_consent
 from entra_spotter.checks.admin_consent_workflow import check_admin_consent_workflow
 from entra_spotter.checks.sp_admin_roles import check_sp_admin_roles
 from entra_spotter.checks.sp_graph_roles import check_sp_graph_roles
+from entra_spotter.checks.legacy_auth_blocked import check_legacy_auth_blocked
 
 ALL_CHECKS: list[Check] = [
     Check(
@@ -54,5 +55,10 @@ ALL_CHECKS: list[Check] = [
         id="sp-graph-roles",
         name="Service Principal MS Graph Roles",
         run=check_sp_graph_roles,
+    ),
+    Check(
+        id="legacy-auth-blocked",
+        name="Legacy Authentication Blocked",
+        run=check_legacy_auth_blocked,
     ),
 ]

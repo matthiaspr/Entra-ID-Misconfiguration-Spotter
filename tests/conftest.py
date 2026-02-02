@@ -14,6 +14,7 @@ def mock_graph_client():
     client.policies.admin_consent_request_policy.get = AsyncMock()
     client.role_management.directory.role_assignments.get = AsyncMock()
     client.service_principals.get = AsyncMock()
+    client.identity.conditional_access.policies.get = AsyncMock()
     return client
 
 
@@ -99,3 +100,68 @@ class MockServicePrincipal:
 class MockServicePrincipalsResponse:
     def __init__(self, service_principals: list[MockServicePrincipal]):
         self.value = service_principals
+
+
+# Conditional Access Policy mock classes
+
+
+class MockCAGrantControls:
+    def __init__(self, built_in_controls: list[str] | None = None):
+        self.built_in_controls = built_in_controls
+
+
+class MockCAUsers:
+    def __init__(
+        self,
+        include_users: list[str] | None = None,
+        exclude_users: list[str] | None = None,
+        exclude_groups: list[str] | None = None,
+        exclude_roles: list[str] | None = None,
+    ):
+        self.include_users = include_users
+        self.exclude_users = exclude_users
+        self.exclude_groups = exclude_groups
+        self.exclude_roles = exclude_roles
+
+
+class MockCAApplications:
+    def __init__(
+        self,
+        include_applications: list[str] | None = None,
+        exclude_applications: list[str] | None = None,
+    ):
+        self.include_applications = include_applications
+        self.exclude_applications = exclude_applications
+
+
+class MockCAConditions:
+    def __init__(
+        self,
+        client_app_types: list[str] | None = None,
+        users: MockCAUsers | None = None,
+        applications: MockCAApplications | None = None,
+    ):
+        self.client_app_types = client_app_types
+        self.users = users
+        self.applications = applications
+
+
+class MockConditionalAccessPolicy:
+    def __init__(
+        self,
+        id: str,
+        display_name: str,
+        state: str,
+        conditions: MockCAConditions | None = None,
+        grant_controls: MockCAGrantControls | None = None,
+    ):
+        self.id = id
+        self.display_name = display_name
+        self.state = state
+        self.conditions = conditions
+        self.grant_controls = grant_controls
+
+
+class MockCAPoliciesResponse:
+    def __init__(self, policies: list[MockConditionalAccessPolicy]):
+        self.value = policies
