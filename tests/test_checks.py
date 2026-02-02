@@ -55,8 +55,39 @@ class TestUserConsent:
 
         assert result.status == "pass"
 
-    async def test_fail_when_policies_assigned(self, mock_graph_client):
-        """Should fail when consent policies are assigned."""
+    async def test_pass_when_only_disabled_policy(self, mock_graph_client):
+        """Should pass when only the 'Do not allow' policy is assigned."""
+        mock_graph_client.policies.authorization_policy.get.return_value = (
+            MockAuthorizationPolicy(
+                permission_grant_policies_assigned=[
+                    "ManagePermissionGrantsForSelf.microsoft-user-default-recommended"
+                ]
+            )
+        )
+
+        result = await check_user_consent(mock_graph_client)
+
+        assert result.status == "pass"
+        assert result.check_id == "user-consent"
+        assert "cannot consent" in result.message
+
+    async def test_pass_when_only_owned_resource_policy(self, mock_graph_client):
+        """Should pass when only developer consent for owned resources is assigned."""
+        mock_graph_client.policies.authorization_policy.get.return_value = (
+            MockAuthorizationPolicy(
+                permission_grant_policies_assigned=[
+                    "ManagePermissionGrantsForOwnedResource.DeveloperConsent"
+                ]
+            )
+        )
+
+        result = await check_user_consent(mock_graph_client)
+
+        assert result.status == "pass"
+        assert result.check_id == "user-consent"
+
+    async def test_fail_when_legacy_policy(self, mock_graph_client):
+        """Should fail when legacy 'allow all apps' policy is assigned."""
         mock_graph_client.policies.authorization_policy.get.return_value = (
             MockAuthorizationPolicy(
                 permission_grant_policies_assigned=[
@@ -69,8 +100,42 @@ class TestUserConsent:
 
         assert result.status == "fail"
         assert result.check_id == "user-consent"
+        assert "all apps" in result.message
         assert result.recommendation is not None
         assert "permission_grant_policies_assigned" in result.details
+
+    async def test_fail_when_low_policy(self, mock_graph_client):
+        """Should fail when 'verified publishers' policy is assigned."""
+        mock_graph_client.policies.authorization_policy.get.return_value = (
+            MockAuthorizationPolicy(
+                permission_grant_policies_assigned=[
+                    "ManagePermissionGrantsForSelf.microsoft-user-default-low"
+                ]
+            )
+        )
+
+        result = await check_user_consent(mock_graph_client)
+
+        assert result.status == "fail"
+        assert result.check_id == "user-consent"
+        assert "verified publishers" in result.message
+
+    async def test_warning_when_custom_policy(self, mock_graph_client):
+        """Should warn when custom user consent policy is assigned."""
+        mock_graph_client.policies.authorization_policy.get.return_value = (
+            MockAuthorizationPolicy(
+                permission_grant_policies_assigned=[
+                    "ManagePermissionGrantsForSelf.my-custom-policy"
+                ]
+            )
+        )
+
+        result = await check_user_consent(mock_graph_client)
+
+        assert result.status == "warning"
+        assert result.check_id == "user-consent"
+        assert "custom" in result.message.lower()
+        assert "custom_policies" in result.details
 
 
 class TestAdminConsentWorkflow:
