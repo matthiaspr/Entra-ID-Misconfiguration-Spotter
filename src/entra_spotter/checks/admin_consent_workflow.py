@@ -7,19 +7,25 @@ from msgraph import GraphServiceClient
 from entra_spotter.checks import CheckResult
 
 
+def _strip_version_prefix(query: str) -> str:
+    """Strip API version prefixes like /v1.0/ or /beta/ from query paths."""
+    return re.sub(r"^/(v1\.0|beta)/", "/", query)
+
+
 async def _resolve_reviewer(client: GraphServiceClient, query: str) -> dict:
     """Parse a reviewer query and resolve the display name.
 
-    Query paths look like:
-    - /users/{uuid}
-    - /groups/{uuid}
+    Query paths can look like:
+    - /v1.0/users/{uuid}
+    - /beta/groups/{uuid}
     - /directoryRoles/{uuid}
+    - /beta/roleManagement/directory/roleAssignments?$filter=roleDefinitionId eq '{uuid}'
     """
-    # Parse the query path (ID can be UUID or other alphanumeric format)
-    user_match = re.match(r"^/users/([a-zA-Z0-9-]+)$", query)
-    group_match = re.match(r"^/groups/([a-zA-Z0-9-]+)$", query)
-    role_match = re.match(r"^/directoryRoles/([a-zA-Z0-9-]+)$", query)
+    # Strip version prefix for matching
+    normalized = _strip_version_prefix(query)
 
+    # Match user path: /users/{id}
+    user_match = re.match(r"^/users/([a-zA-Z0-9-]+)$", normalized)
     if user_match:
         entity_id = user_match.group(1)
         try:
@@ -28,6 +34,8 @@ async def _resolve_reviewer(client: GraphServiceClient, query: str) -> dict:
         except Exception:
             return {"type": "user", "id": entity_id, "display_name": None}
 
+    # Match group path: /groups/{id}
+    group_match = re.match(r"^/groups/([a-zA-Z0-9-]+)$", normalized)
     if group_match:
         entity_id = group_match.group(1)
         try:
@@ -36,6 +44,8 @@ async def _resolve_reviewer(client: GraphServiceClient, query: str) -> dict:
         except Exception:
             return {"type": "group", "id": entity_id, "display_name": None}
 
+    # Match directory role path: /directoryRoles/{id}
+    role_match = re.match(r"^/directoryRoles/([a-zA-Z0-9-]+)$", normalized)
     if role_match:
         entity_id = role_match.group(1)
         try:
@@ -43,6 +53,25 @@ async def _resolve_reviewer(client: GraphServiceClient, query: str) -> dict:
             return {"type": "role", "id": entity_id, "display_name": role.display_name}
         except Exception:
             return {"type": "role", "id": entity_id, "display_name": None}
+
+    # Match role assignment query: /roleManagement/directory/roleAssignments?$filter=roleDefinitionId eq '{id}'
+    role_assignment_match = re.search(
+        r"roleDefinitionId\s+eq\s+'([a-fA-F0-9-]+)'", normalized
+    )
+    if role_assignment_match:
+        role_def_id = role_assignment_match.group(1)
+        try:
+            # Look up the role definition to get its display name
+            role_def = await client.role_management.directory.role_definitions.by_unified_role_definition_id(
+                role_def_id
+            ).get()
+            return {
+                "type": "role",
+                "id": role_def_id,
+                "display_name": f"Users with {role_def.display_name} role",
+            }
+        except Exception:
+            return {"type": "role", "id": role_def_id, "display_name": None}
 
     # Unknown query format
     return {"type": "unknown", "query": query, "display_name": None}

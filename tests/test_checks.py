@@ -19,6 +19,7 @@ from conftest import (
     MockUser,
     MockGroup,
     MockDirectoryRoleInfo,
+    MockRoleDefinition,
     MockRoleMember,
     MockRoleAssignment,
     MockRoleAssignmentsResponse,
@@ -252,6 +253,75 @@ class TestAdminConsentWorkflow:
         assert "1 reviewer(s)" in result.message
         assert f"user: {user_id}" in result.message
         assert result.details["reviewers"][0]["display_name"] is None
+
+    async def test_pass_with_version_prefixed_user_path(self, mock_graph_client):
+        """Should handle /v1.0/ prefix in user paths."""
+        user_id = "e1cbc750-722a-4d8a-95d1-f2c7203faeaf"
+        mock_graph_client.policies.admin_consent_request_policy.get.return_value = (
+            MockAdminConsentRequestPolicy(
+                is_enabled=True,
+                reviewers=[MockReviewerScope(f"/v1.0/users/{user_id}")]
+            )
+        )
+        mock_graph_client.users.by_user_id.return_value.get.return_value = (
+            MockUser(id=user_id, display_name="Jane Smith")
+        )
+
+        result = await check_admin_consent_workflow(mock_graph_client)
+
+        assert result.status == "pass"
+        assert "Jane Smith" in result.message
+        assert result.details["reviewers"][0]["type"] == "user"
+        assert result.details["reviewers"][0]["display_name"] == "Jane Smith"
+
+    async def test_pass_with_role_assignment_query(self, mock_graph_client):
+        """Should resolve role definition ID from role assignment filter query."""
+        role_def_id = "62e90394-69f5-4237-9190-012177145e10"  # Global Administrator
+        query = f"/beta/roleManagement/directory/roleAssignments?$filter=roleDefinitionId eq '{role_def_id}'"
+        mock_graph_client.policies.admin_consent_request_policy.get.return_value = (
+            MockAdminConsentRequestPolicy(
+                is_enabled=True,
+                reviewers=[MockReviewerScope(query)]
+            )
+        )
+        mock_graph_client.role_management.directory.role_definitions.by_unified_role_definition_id.return_value.get.return_value = (
+            MockRoleDefinition(id=role_def_id, display_name="Global Administrator")
+        )
+
+        result = await check_admin_consent_workflow(mock_graph_client)
+
+        assert result.status == "pass"
+        assert "Users with Global Administrator role" in result.message
+        assert result.details["reviewers"][0]["type"] == "role"
+
+    async def test_pass_with_mixed_reviewer_formats(self, mock_graph_client):
+        """Should handle mix of version-prefixed paths and role assignment queries."""
+        user_id = "e1cbc750-722a-4d8a-95d1-f2c7203faeaf"
+        role_def_id = "62e90394-69f5-4237-9190-012177145e10"
+        mock_graph_client.policies.admin_consent_request_policy.get.return_value = (
+            MockAdminConsentRequestPolicy(
+                is_enabled=True,
+                reviewers=[
+                    MockReviewerScope(f"/v1.0/users/{user_id}"),
+                    MockReviewerScope(
+                        f"/beta/roleManagement/directory/roleAssignments?$filter=roleDefinitionId eq '{role_def_id}'"
+                    ),
+                ]
+            )
+        )
+        mock_graph_client.users.by_user_id.return_value.get.return_value = (
+            MockUser(id=user_id, display_name="Jane Smith")
+        )
+        mock_graph_client.role_management.directory.role_definitions.by_unified_role_definition_id.return_value.get.return_value = (
+            MockRoleDefinition(id=role_def_id, display_name="Global Administrator")
+        )
+
+        result = await check_admin_consent_workflow(mock_graph_client)
+
+        assert result.status == "pass"
+        assert "2 reviewer(s)" in result.message
+        assert "Jane Smith" in result.message
+        assert "Users with Global Administrator role" in result.message
 
     async def test_fail_when_disabled(self, mock_graph_client):
         """Should fail when workflow is disabled."""

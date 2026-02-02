@@ -19,6 +19,10 @@ def mock_graph_client():
     client.users.by_user_id = MagicMock(return_value=MagicMock(get=AsyncMock()))
     client.groups.by_group_id = MagicMock(return_value=MagicMock(get=AsyncMock()))
     client.directory_roles.by_directory_role_id = MagicMock(return_value=MagicMock(get=AsyncMock()))
+    # For role definition resolution
+    client.role_management.directory.role_definitions.by_unified_role_definition_id = MagicMock(
+        return_value=MagicMock(get=AsyncMock())
+    )
     return client
 
 
@@ -62,6 +66,12 @@ class MockGroup:
 
 
 class MockDirectoryRoleInfo:
+    def __init__(self, id: str, display_name: str):
+        self.id = id
+        self.display_name = display_name
+
+
+class MockRoleDefinition:
     def __init__(self, id: str, display_name: str):
         self.id = id
         self.display_name = display_name
