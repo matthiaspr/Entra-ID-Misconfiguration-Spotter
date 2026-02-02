@@ -1,12 +1,15 @@
 """Check for service principals in privileged admin roles."""
 
 from msgraph import GraphServiceClient
+from msgraph.generated.role_management.directory.role_assignments.role_assignments_request_builder import (
+    RoleAssignmentsRequestBuilder,
+)
 
 from entra_spotter.checks import CheckResult
 
-# Role template IDs for privileged roles
+# Role definition IDs for privileged roles (same as template IDs)
 # https://learn.microsoft.com/en-us/entra/identity/role-based-access-control/permissions-reference
-PRIVILEGED_ROLE_TEMPLATES = {
+PRIVILEGED_ROLE_DEFINITIONS = {
     "62e90394-69f5-4237-9190-012177145e10": "Global Administrator",
     "e8611ab8-c189-46e8-94e1-60213ab1f814": "Privileged Role Administrator",
     "9b895d92-2cd3-44c7-9d02-a6ac2d5ea5c3": "Application Administrator",
@@ -17,41 +20,45 @@ PRIVILEGED_ROLE_TEMPLATES = {
 async def check_sp_admin_roles(client: GraphServiceClient) -> CheckResult:
     """Check for service principals in privileged admin roles.
 
-    Calls GET /directoryRoles and GET /directoryRoles/{id}/members
-    to find service principals in privileged roles.
+    Uses the unified RBAC API: GET /roleManagement/directory/roleAssignments
+    with $expand=principal to find service principals in privileged roles.
 
     Pass: No service principals in privileged roles
     Warning: One or more service principals found in privileged roles
     """
-    # Get all activated directory roles
-    roles_response = await client.directory_roles.get()
-    roles = roles_response.value or []
+    # Get all role assignments with principal details expanded
+    query_params = RoleAssignmentsRequestBuilder.RoleAssignmentsRequestBuilderGetQueryParameters(
+        expand=["principal"],
+    )
+    request_config = RoleAssignmentsRequestBuilder.RoleAssignmentsRequestBuilderGetRequestConfiguration(
+        query_parameters=query_params,
+    )
+    assignments_response = await client.role_management.directory.role_assignments.get(
+        request_configuration=request_config
+    )
+    assignments = assignments_response.value or []
 
     findings: list[dict] = []
 
-    for role in roles:
-        # Check if this is a privileged role by template ID
-        if role.role_template_id not in PRIVILEGED_ROLE_TEMPLATES:
+    for assignment in assignments:
+        # Check if this is a privileged role
+        if assignment.role_definition_id not in PRIVILEGED_ROLE_DEFINITIONS:
             continue
 
-        role_name = PRIVILEGED_ROLE_TEMPLATES[role.role_template_id]
+        role_name = PRIVILEGED_ROLE_DEFINITIONS[assignment.role_definition_id]
+        principal = assignment.principal
 
-        # Get members of this role
-        members_response = await client.directory_roles.by_directory_role_id(
-            role.id
-        ).members.get()
-        members = members_response.value or []
+        if principal is None:
+            continue
 
-        for member in members:
-            # Check if member is a service principal (not a user)
-            # Service principals have @odata.type = #microsoft.graph.servicePrincipal
-            odata_type = getattr(member, "odata_type", None)
-            if odata_type == "#microsoft.graph.servicePrincipal":
-                findings.append({
-                    "service_principal_id": member.id,
-                    "display_name": getattr(member, "display_name", "Unknown"),
-                    "role": role_name,
-                })
+        # Check if principal is a service principal
+        odata_type = getattr(principal, "odata_type", None)
+        if odata_type == "#microsoft.graph.servicePrincipal":
+            findings.append({
+                "service_principal_id": principal.id,
+                "display_name": getattr(principal, "display_name", "Unknown"),
+                "role": role_name,
+            })
 
     if not findings:
         return CheckResult(

@@ -12,7 +12,7 @@ def mock_graph_client():
     # Make the .get() methods return AsyncMock so they can be awaited
     client.policies.authorization_policy.get = AsyncMock()
     client.policies.admin_consent_request_policy.get = AsyncMock()
-    client.directory_roles.get = AsyncMock()
+    client.role_management.directory.role_assignments.get = AsyncMock()
     client.service_principals.get = AsyncMock()
     return client
 
@@ -59,6 +59,23 @@ class MockRoleMember:
 class MockRoleMembersResponse:
     def __init__(self, members: list[MockRoleMember]):
         self.value = members
+
+
+class MockRoleAssignment:
+    def __init__(
+        self,
+        role_definition_id: str,
+        principal_id: str,
+        principal: MockRoleMember | None = None,
+    ):
+        self.role_definition_id = role_definition_id
+        self.principal_id = principal_id
+        self.principal = principal
+
+
+class MockRoleAssignmentsResponse:
+    def __init__(self, assignments: list[MockRoleAssignment]):
+        self.value = assignments
 
 
 class MockAppRoleAssignment:

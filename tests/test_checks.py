@@ -12,10 +12,9 @@ from entra_spotter.checks.sp_graph_roles import check_sp_graph_roles
 from conftest import (
     MockAuthorizationPolicy,
     MockAdminConsentRequestPolicy,
-    MockDirectoryRole,
-    MockDirectoryRolesResponse,
     MockRoleMember,
-    MockRoleMembersResponse,
+    MockRoleAssignment,
+    MockRoleAssignmentsResponse,
     MockAppRoleAssignment,
     MockServicePrincipal,
     MockServicePrincipalsResponse,
@@ -118,15 +117,17 @@ class TestServicePrincipalAdminRoles:
     """Tests for service principal admin roles check."""
 
     async def test_pass_when_no_privileged_roles(self, mock_graph_client):
-        """Should pass when no service principals are in privileged roles."""
-        # Return a non-privileged role
-        mock_graph_client.directory_roles.get.return_value = MockDirectoryRolesResponse([
-            MockDirectoryRole(
-                id="role-1",
-                role_template_id="some-other-template-id",
-                display_name="Some Other Role",
-            )
-        ])
+        """Should pass when no role assignments for privileged roles exist."""
+        # Return only non-privileged role assignments
+        mock_graph_client.role_management.directory.role_assignments.get.return_value = (
+            MockRoleAssignmentsResponse([
+                MockRoleAssignment(
+                    role_definition_id="some-other-role-id",
+                    principal_id="user-1",
+                    principal=MockRoleMember("user-1", "John Doe", "#microsoft.graph.user"),
+                )
+            ])
+        )
 
         result = await check_sp_admin_roles(mock_graph_client)
 
@@ -135,25 +136,16 @@ class TestServicePrincipalAdminRoles:
 
     async def test_pass_when_privileged_role_has_only_users(self, mock_graph_client):
         """Should pass when privileged roles have only user members."""
-        # Global Administrator template ID
-        mock_graph_client.directory_roles.get.return_value = MockDirectoryRolesResponse([
-            MockDirectoryRole(
-                id="role-1",
-                role_template_id="62e90394-69f5-4237-9190-012177145e10",
-                display_name="Global Administrator",
-            )
-        ])
-
-        # Members are users, not service principals
-        mock_members = AsyncMock()
-        mock_members.return_value = MockRoleMembersResponse([
-            MockRoleMember(
-                id="user-1",
-                display_name="John Doe",
-                odata_type="#microsoft.graph.user",
-            )
-        ])
-        mock_graph_client.directory_roles.by_directory_role_id.return_value.members.get = mock_members
+        # Global Administrator with only user members
+        mock_graph_client.role_management.directory.role_assignments.get.return_value = (
+            MockRoleAssignmentsResponse([
+                MockRoleAssignment(
+                    role_definition_id="62e90394-69f5-4237-9190-012177145e10",
+                    principal_id="user-1",
+                    principal=MockRoleMember("user-1", "John Doe", "#microsoft.graph.user"),
+                )
+            ])
+        )
 
         result = await check_sp_admin_roles(mock_graph_client)
 
@@ -161,23 +153,17 @@ class TestServicePrincipalAdminRoles:
 
     async def test_warning_when_sp_in_global_admin(self, mock_graph_client):
         """Should warn when a service principal is in Global Administrator role."""
-        mock_graph_client.directory_roles.get.return_value = MockDirectoryRolesResponse([
-            MockDirectoryRole(
-                id="role-1",
-                role_template_id="62e90394-69f5-4237-9190-012177145e10",
-                display_name="Global Administrator",
-            )
-        ])
-
-        mock_members = AsyncMock()
-        mock_members.return_value = MockRoleMembersResponse([
-            MockRoleMember(
-                id="sp-1",
-                display_name="My Service Principal",
-                odata_type="#microsoft.graph.servicePrincipal",
-            )
-        ])
-        mock_graph_client.directory_roles.by_directory_role_id.return_value.members.get = mock_members
+        mock_graph_client.role_management.directory.role_assignments.get.return_value = (
+            MockRoleAssignmentsResponse([
+                MockRoleAssignment(
+                    role_definition_id="62e90394-69f5-4237-9190-012177145e10",
+                    principal_id="sp-1",
+                    principal=MockRoleMember(
+                        "sp-1", "My Service Principal", "#microsoft.graph.servicePrincipal"
+                    ),
+                )
+            ])
+        )
 
         result = await check_sp_admin_roles(mock_graph_client)
 
@@ -190,43 +176,51 @@ class TestServicePrincipalAdminRoles:
 
     async def test_warning_with_multiple_sps_in_multiple_roles(self, mock_graph_client):
         """Should warn and list all service principals in privileged roles."""
-        mock_graph_client.directory_roles.get.return_value = MockDirectoryRolesResponse([
-            MockDirectoryRole(
-                id="role-1",
-                role_template_id="62e90394-69f5-4237-9190-012177145e10",
-                display_name="Global Administrator",
-            ),
-            MockDirectoryRole(
-                id="role-2",
-                role_template_id="9b895d92-2cd3-44c7-9d02-a6ac2d5ea5c3",
-                display_name="Application Administrator",
-            ),
-        ])
-
-        def mock_by_role_id(role_id):
-            mock = type("Mock", (), {})()
-            mock.members = type("Mock", (), {})()
-
-            if role_id == "role-1":
-                mock.members.get = AsyncMock(return_value=MockRoleMembersResponse([
-                    MockRoleMember("sp-1", "SP One", "#microsoft.graph.servicePrincipal")
-                ]))
-            else:
-                mock.members.get = AsyncMock(return_value=MockRoleMembersResponse([
-                    MockRoleMember("sp-2", "SP Two", "#microsoft.graph.servicePrincipal")
-                ]))
-            return mock
-
-        mock_graph_client.directory_roles.by_directory_role_id.side_effect = mock_by_role_id
+        mock_graph_client.role_management.directory.role_assignments.get.return_value = (
+            MockRoleAssignmentsResponse([
+                MockRoleAssignment(
+                    role_definition_id="62e90394-69f5-4237-9190-012177145e10",
+                    principal_id="sp-1",
+                    principal=MockRoleMember(
+                        "sp-1", "SP One", "#microsoft.graph.servicePrincipal"
+                    ),
+                ),
+                MockRoleAssignment(
+                    role_definition_id="9b895d92-2cd3-44c7-9d02-a6ac2d5ea5c3",
+                    principal_id="sp-2",
+                    principal=MockRoleMember(
+                        "sp-2", "SP Two", "#microsoft.graph.servicePrincipal"
+                    ),
+                ),
+            ])
+        )
 
         result = await check_sp_admin_roles(mock_graph_client)
 
         assert result.status == "warning"
         assert len(result.details["service_principals"]) == 2
 
-    async def test_pass_when_no_roles_exist(self, mock_graph_client):
-        """Should pass when no directory roles exist."""
-        mock_graph_client.directory_roles.get.return_value = MockDirectoryRolesResponse([])
+    async def test_pass_when_no_assignments_exist(self, mock_graph_client):
+        """Should pass when no role assignments exist."""
+        mock_graph_client.role_management.directory.role_assignments.get.return_value = (
+            MockRoleAssignmentsResponse([])
+        )
+
+        result = await check_sp_admin_roles(mock_graph_client)
+
+        assert result.status == "pass"
+
+    async def test_handles_none_principal(self, mock_graph_client):
+        """Should handle role assignments where principal is None."""
+        mock_graph_client.role_management.directory.role_assignments.get.return_value = (
+            MockRoleAssignmentsResponse([
+                MockRoleAssignment(
+                    role_definition_id="62e90394-69f5-4237-9190-012177145e10",
+                    principal_id="sp-1",
+                    principal=None,
+                )
+            ])
+        )
 
         result = await check_sp_admin_roles(mock_graph_client)
 
