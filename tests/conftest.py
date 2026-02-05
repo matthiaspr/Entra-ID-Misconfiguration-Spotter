@@ -152,8 +152,9 @@ class MockServicePrincipal:
 
 
 class MockServicePrincipalsResponse:
-    def __init__(self, service_principals: list[MockServicePrincipal]):
+    def __init__(self, service_principals: list[MockServicePrincipal], odata_next_link: str | None = None):
         self.value = service_principals
+        self.odata_next_link = odata_next_link
 
 
 # Conditional Access Policy mock classes

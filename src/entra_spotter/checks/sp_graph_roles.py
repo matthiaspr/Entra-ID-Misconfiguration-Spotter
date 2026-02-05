@@ -15,9 +15,6 @@ SENSITIVE_APP_ROLES = {
     "50483e42-d915-4231-9639-7fdb7fd190e5": "UserAuthenticationMethod.ReadWrite.All",
 }
 
-# Microsoft Graph service principal app ID (same across all tenants)
-MS_GRAPH_APP_ID = "00000003-0000-0000-c000-000000000000"
-
 
 async def check_sp_graph_roles(client: GraphServiceClient) -> CheckResult:
     """Check for service principals with sensitive MS Graph app roles.
@@ -38,25 +35,36 @@ async def check_sp_graph_roles(client: GraphServiceClient) -> CheckResult:
         query_parameters=query_params,
     )
 
-    response = await client.service_principals.get(request_configuration=request_config)
-
-    service_principals = response.value or []
     findings: list[dict] = []
 
-    for sp in service_principals:
-        # Skip if no app role assignments
-        assignments = getattr(sp, "app_role_assignments", None) or []
+    # Get first page
+    response = await client.service_principals.get(request_configuration=request_config)
 
-        for assignment in assignments:
-            # Check if this is a sensitive Graph API role
-            role_id = str(assignment.app_role_id) if assignment.app_role_id else None
-            if role_id in SENSITIVE_APP_ROLES:
-                findings.append({
-                    "service_principal_id": sp.id,
-                    "display_name": sp.display_name or "Unknown",
-                    "app_role": SENSITIVE_APP_ROLES[role_id],
-                    "app_role_id": role_id,
-                })
+    # Process all pages
+    while response:
+        service_principals = response.value or []
+
+        for sp in service_principals:
+            assignments = getattr(sp, "app_role_assignments", None) or []
+
+            for assignment in assignments:
+                # Check if this is a sensitive Graph API role
+                role_id = str(assignment.app_role_id).lower() if assignment.app_role_id else None
+                # Compare lowercase to handle UUID case differences
+                for sensitive_id, role_name in SENSITIVE_APP_ROLES.items():
+                    if role_id == sensitive_id.lower():
+                        findings.append({
+                            "service_principal_id": sp.id,
+                            "display_name": sp.display_name or "Unknown",
+                            "app_role": role_name,
+                            "app_role_id": role_id,
+                        })
+
+        # Get next page if available
+        if response.odata_next_link:
+            response = await client.service_principals.with_url(response.odata_next_link).get()
+        else:
+            break
 
     if not findings:
         return CheckResult(
