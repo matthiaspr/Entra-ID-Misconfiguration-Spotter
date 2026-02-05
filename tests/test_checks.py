@@ -12,6 +12,7 @@ from entra_spotter.checks.legacy_auth_blocked import check_legacy_auth_blocked
 from entra_spotter.checks.device_code_blocked import check_device_code_blocked
 from entra_spotter.checks.privileged_roles_mfa import check_privileged_roles_mfa, PRIVILEGED_ROLES
 from entra_spotter.checks.global_admin_count import check_global_admin_count, GLOBAL_ADMIN_ROLE_ID
+from entra_spotter.checks.guest_invite_policy import check_guest_invite_policy
 
 from conftest import (
     MockAuthorizationPolicy,
@@ -1467,3 +1468,73 @@ class TestGlobalAdminCount:
 
         assert result.status == "pass"
         assert result.details["user_count"] == 8
+
+
+class TestGuestInvitePolicy:
+    """Tests for guest invite policy check."""
+
+    async def test_pass_when_no_one_can_invite(self, mock_graph_client):
+        """Should pass when guest invitations are disabled."""
+        mock_graph_client.policies.authorization_policy.get.return_value = (
+            MockAuthorizationPolicy(allow_invites_from="none")
+        )
+
+        result = await check_guest_invite_policy(mock_graph_client)
+
+        assert result.status == "pass"
+        assert result.check_id == "guest-invite-policy"
+        assert "disabled" in result.message.lower()
+        assert result.details["allow_invites_from"] == "none"
+
+    async def test_fail_when_everyone_can_invite(self, mock_graph_client):
+        """Should fail when anyone can invite guests."""
+        mock_graph_client.policies.authorization_policy.get.return_value = (
+            MockAuthorizationPolicy(allow_invites_from="everyone")
+        )
+
+        result = await check_guest_invite_policy(mock_graph_client)
+
+        assert result.status == "fail"
+        assert result.check_id == "guest-invite-policy"
+        assert "Anyone" in result.message
+        assert result.recommendation is not None
+        assert result.details["allow_invites_from"] == "everyone"
+
+    async def test_warning_when_admins_and_guest_inviters(self, mock_graph_client):
+        """Should warn when only admins and guest inviters can invite."""
+        mock_graph_client.policies.authorization_policy.get.return_value = (
+            MockAuthorizationPolicy(allow_invites_from="adminsAndGuestInviters")
+        )
+
+        result = await check_guest_invite_policy(mock_graph_client)
+
+        assert result.status == "warning"
+        assert result.check_id == "guest-invite-policy"
+        assert "admin roles" in result.message.lower()
+        assert result.details["allow_invites_from"] == "adminsAndGuestInviters"
+
+    async def test_warning_when_admins_and_all_members(self, mock_graph_client):
+        """Should warn when admins, guest inviters, and all members can invite."""
+        mock_graph_client.policies.authorization_policy.get.return_value = (
+            MockAuthorizationPolicy(allow_invites_from="adminsGuestInvitersAndAllMembers")
+        )
+
+        result = await check_guest_invite_policy(mock_graph_client)
+
+        assert result.status == "warning"
+        assert result.check_id == "guest-invite-policy"
+        assert "Member users" in result.message
+        assert result.details["allow_invites_from"] == "adminsGuestInvitersAndAllMembers"
+
+    async def test_error_when_property_missing(self, mock_graph_client):
+        """Should return error when allowInvitesFrom is not in response."""
+        # Use a mock that doesn't have allow_invites_from
+        mock_graph_client.policies.authorization_policy.get.return_value = (
+            MockAuthorizationPolicy(permission_grant_policies_assigned=[])
+        )
+
+        result = await check_guest_invite_policy(mock_graph_client)
+
+        assert result.status == "error"
+        assert result.check_id == "guest-invite-policy"
+        assert "Could not determine" in result.message

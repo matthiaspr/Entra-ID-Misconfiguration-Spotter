@@ -36,10 +36,15 @@ class MockDefaultUserRolePermissions:
 
 
 class MockAuthorizationPolicy:
-    def __init__(self, permission_grant_policies_assigned: list[str] | None = None):
+    def __init__(
+        self,
+        permission_grant_policies_assigned: list[str] | None = None,
+        allow_invites_from: str | None = None,
+    ):
         self.default_user_role_permissions = MockDefaultUserRolePermissions(
             permission_grant_policies_assigned
         )
+        self.allow_invites_from = allow_invites_from
 
 
 class MockReviewerScope:

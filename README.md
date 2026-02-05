@@ -65,6 +65,7 @@ uv run entra-spotter --list-checks
 | `device-code-blocked` | Verifies a CA policy blocks device code flow authentication |
 | `privileged-roles-mfa` | Verifies MFA is required for all 14 privileged admin roles |
 | `global-admin-count` | Verifies 2-8 cloud-only users in Global Administrator role |
+| `guest-invite-policy` | Checks who can invite guest users to the tenant |
 
 ## Required Permissions
 
