@@ -14,6 +14,10 @@ from entra_spotter.checks.privileged_roles_mfa import check_privileged_roles_mfa
 from entra_spotter.checks.global_admin_count import check_global_admin_count, GLOBAL_ADMIN_ROLE_ID
 from entra_spotter.checks.guest_invite_policy import check_guest_invite_policy
 from entra_spotter.checks.guest_access import check_guest_access
+from entra_spotter.checks.privileged_roles_phishing_resistant_mfa import (
+    check_privileged_roles_phishing_resistant_mfa,
+    PRIVILEGED_ROLES as PHISHING_RESISTANT_PRIVILEGED_ROLES,
+)
 
 from conftest import (
     MockAuthorizationPolicy,
@@ -30,6 +34,7 @@ from conftest import (
     MockAppRoleAssignment,
     MockServicePrincipal,
     MockServicePrincipalsResponse,
+    MockCAAuthenticationStrength,
     MockCAGrantControls,
     MockCAUsers,
     MockCAApplications,
@@ -1601,3 +1606,229 @@ class TestGuestAccess:
         assert result.status == "error"
         assert result.check_id == "guest-access"
         assert "Could not determine" in result.message
+
+
+class TestPrivilegedRolesPhishingResistantMfa:
+    """Tests for phishing-resistant MFA for privileged roles check."""
+
+    ALL_ROLE_IDS = list(PHISHING_RESISTANT_PRIVILEGED_ROLES.keys())
+    PHISHING_RESISTANT_ID = "00000000-0000-0000-0000-000000000004"
+
+    def _create_phishing_resistant_policy(
+        self,
+        policy_id: str = "policy-1",
+        name: str = "Phishing-Resistant MFA for Admins",
+        state: str = "enabled",
+        include_roles: list[str] | None = None,
+        exclude_users: list[str] | None = None,
+        exclude_groups: list[str] | None = None,
+        exclude_roles: list[str] | None = None,
+        exclude_applications: list[str] | None = None,
+    ) -> MockConditionalAccessPolicy:
+        """Helper to create a valid phishing-resistant MFA policy for roles."""
+        return MockConditionalAccessPolicy(
+            id=policy_id,
+            display_name=name,
+            state=state,
+            conditions=MockCAConditions(
+                users=MockCAUsers(
+                    include_roles=include_roles or self.ALL_ROLE_IDS,
+                    exclude_users=exclude_users,
+                    exclude_groups=exclude_groups,
+                    exclude_roles=exclude_roles,
+                ),
+                applications=MockCAApplications(
+                    include_applications=["All"],
+                    exclude_applications=exclude_applications,
+                ),
+            ),
+            grant_controls=MockCAGrantControls(
+                authentication_strength=MockCAAuthenticationStrength(
+                    id=self.PHISHING_RESISTANT_ID,
+                ),
+            ),
+        )
+
+    async def test_pass_when_all_roles_covered_no_exclusions(self, mock_graph_client):
+        """Should pass when all privileged roles are covered with no exclusions."""
+        mock_graph_client.identity.conditional_access.policies.get.return_value = (
+            MockCAPoliciesResponse([self._create_phishing_resistant_policy()])
+        )
+
+        result = await check_privileged_roles_phishing_resistant_mfa(mock_graph_client)
+
+        assert result.status == "pass"
+        assert result.check_id == "privileged-roles-phishing-resistant-mfa"
+        assert "All 14 privileged roles require phishing-resistant MFA" in result.message
+
+    async def test_fail_when_no_policies_exist(self, mock_graph_client):
+        """Should fail when no CA policies exist."""
+        mock_graph_client.identity.conditional_access.policies.get.return_value = (
+            MockCAPoliciesResponse([])
+        )
+
+        result = await check_privileged_roles_phishing_resistant_mfa(mock_graph_client)
+
+        assert result.status == "fail"
+        assert result.check_id == "privileged-roles-phishing-resistant-mfa"
+        assert result.recommendation is not None
+
+    async def test_fail_when_some_roles_not_covered(self, mock_graph_client):
+        """Should fail when some privileged roles are not covered."""
+        partial_roles = self.ALL_ROLE_IDS[:10]
+        policy = self._create_phishing_resistant_policy(include_roles=partial_roles)
+        mock_graph_client.identity.conditional_access.policies.get.return_value = (
+            MockCAPoliciesResponse([policy])
+        )
+
+        result = await check_privileged_roles_phishing_resistant_mfa(mock_graph_client)
+
+        assert result.status == "fail"
+        assert "4/14" in result.message
+        assert "roles_not_covered" in result.details
+
+    async def test_pass_when_multiple_policies_cover_all_roles(self, mock_graph_client):
+        """Should pass when multiple policies together cover all roles."""
+        half = len(self.ALL_ROLE_IDS) // 2
+        policy1 = self._create_phishing_resistant_policy(
+            policy_id="p1",
+            name="Policy 1",
+            include_roles=self.ALL_ROLE_IDS[:half],
+        )
+        policy2 = self._create_phishing_resistant_policy(
+            policy_id="p2",
+            name="Policy 2",
+            include_roles=self.ALL_ROLE_IDS[half:],
+        )
+        mock_graph_client.identity.conditional_access.policies.get.return_value = (
+            MockCAPoliciesResponse([policy1, policy2])
+        )
+
+        result = await check_privileged_roles_phishing_resistant_mfa(mock_graph_client)
+
+        assert result.status == "pass"
+        assert len(result.details["enforced_policies"]) == 2
+
+    async def test_warning_when_only_report_only_policies(self, mock_graph_client):
+        """Should warn when only report-only policies exist."""
+        policy = self._create_phishing_resistant_policy(
+            state="enabledForReportingButNotEnforced",
+        )
+        mock_graph_client.identity.conditional_access.policies.get.return_value = (
+            MockCAPoliciesResponse([policy])
+        )
+
+        result = await check_privileged_roles_phishing_resistant_mfa(mock_graph_client)
+
+        assert result.status == "warning"
+        assert "report-only" in result.message
+
+    async def test_warning_when_policy_has_exclusions(self, mock_graph_client):
+        """Should warn when policy has exclusions."""
+        policy = self._create_phishing_resistant_policy(
+            exclude_users=["break-glass-account"],
+        )
+        mock_graph_client.identity.conditional_access.policies.get.return_value = (
+            MockCAPoliciesResponse([policy])
+        )
+
+        result = await check_privileged_roles_phishing_resistant_mfa(mock_graph_client)
+
+        assert result.status == "warning"
+        assert "exclusions" in result.message
+
+    async def test_fail_when_policy_not_targeting_all_apps(self, mock_graph_client):
+        """Should fail when policy doesn't target all applications."""
+        policy = MockConditionalAccessPolicy(
+            id="policy-1",
+            display_name="Limited Policy",
+            state="enabled",
+            conditions=MockCAConditions(
+                users=MockCAUsers(include_roles=self.ALL_ROLE_IDS),
+                applications=MockCAApplications(
+                    include_applications=["specific-app-id"],
+                ),
+            ),
+            grant_controls=MockCAGrantControls(
+                authentication_strength=MockCAAuthenticationStrength(
+                    id=self.PHISHING_RESISTANT_ID,
+                ),
+            ),
+        )
+        mock_graph_client.identity.conditional_access.policies.get.return_value = (
+            MockCAPoliciesResponse([policy])
+        )
+
+        result = await check_privileged_roles_phishing_resistant_mfa(mock_graph_client)
+
+        assert result.status == "fail"
+
+    async def test_fail_when_policy_uses_regular_mfa_not_phishing_resistant(self, mock_graph_client):
+        """Should fail when policy uses built-in MFA control instead of phishing-resistant strength."""
+        policy = MockConditionalAccessPolicy(
+            id="policy-1",
+            display_name="Regular MFA Policy",
+            state="enabled",
+            conditions=MockCAConditions(
+                users=MockCAUsers(include_roles=self.ALL_ROLE_IDS),
+                applications=MockCAApplications(include_applications=["All"]),
+            ),
+            grant_controls=MockCAGrantControls(built_in_controls=["mfa"]),
+        )
+        mock_graph_client.identity.conditional_access.policies.get.return_value = (
+            MockCAPoliciesResponse([policy])
+        )
+
+        result = await check_privileged_roles_phishing_resistant_mfa(mock_graph_client)
+
+        assert result.status == "fail"
+
+    async def test_fail_when_policy_uses_wrong_strength_id(self, mock_graph_client):
+        """Should fail when policy uses a different authentication strength (e.g. regular MFA)."""
+        regular_mfa_strength_id = "00000000-0000-0000-0000-000000000002"
+        policy = MockConditionalAccessPolicy(
+            id="policy-1",
+            display_name="Regular MFA Strength Policy",
+            state="enabled",
+            conditions=MockCAConditions(
+                users=MockCAUsers(include_roles=self.ALL_ROLE_IDS),
+                applications=MockCAApplications(include_applications=["All"]),
+            ),
+            grant_controls=MockCAGrantControls(
+                authentication_strength=MockCAAuthenticationStrength(
+                    id=regular_mfa_strength_id,
+                ),
+            ),
+        )
+        mock_graph_client.identity.conditional_access.policies.get.return_value = (
+            MockCAPoliciesResponse([policy])
+        )
+
+        result = await check_privileged_roles_phishing_resistant_mfa(mock_graph_client)
+
+        assert result.status == "fail"
+
+    async def test_disabled_policy_is_ignored(self, mock_graph_client):
+        """Should ignore disabled policies."""
+        policy = self._create_phishing_resistant_policy(state="disabled")
+        mock_graph_client.identity.conditional_access.policies.get.return_value = (
+            MockCAPoliciesResponse([policy])
+        )
+
+        result = await check_privileged_roles_phishing_resistant_mfa(mock_graph_client)
+
+        assert result.status == "fail"
+
+    async def test_details_include_covered_role_names(self, mock_graph_client):
+        """Should include role names in policy details."""
+        policy = self._create_phishing_resistant_policy(
+            include_roles=["62e90394-69f5-4237-9190-012177145e10"],
+        )
+        mock_graph_client.identity.conditional_access.policies.get.return_value = (
+            MockCAPoliciesResponse([policy])
+        )
+
+        result = await check_privileged_roles_phishing_resistant_mfa(mock_graph_client)
+
+        assert result.status == "fail"
+        assert "Global Administrator" in result.details["enforced_policies"][0]["covered_roles"]

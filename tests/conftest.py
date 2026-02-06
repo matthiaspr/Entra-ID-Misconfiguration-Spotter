@@ -167,9 +167,19 @@ class MockServicePrincipalsResponse:
 # Conditional Access Policy mock classes
 
 
+class MockCAAuthenticationStrength:
+    def __init__(self, id: str):
+        self.id = id
+
+
 class MockCAGrantControls:
-    def __init__(self, built_in_controls: list[str] | None = None):
+    def __init__(
+        self,
+        built_in_controls: list[str] | None = None,
+        authentication_strength: MockCAAuthenticationStrength | None = None,
+    ):
         self.built_in_controls = built_in_controls
+        self.authentication_strength = authentication_strength
 
 
 class MockCAUsers:

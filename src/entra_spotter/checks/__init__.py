@@ -39,6 +39,7 @@ from entra_spotter.checks.privileged_roles_mfa import check_privileged_roles_mfa
 from entra_spotter.checks.global_admin_count import check_global_admin_count
 from entra_spotter.checks.guest_invite_policy import check_guest_invite_policy
 from entra_spotter.checks.guest_access import check_guest_access
+from entra_spotter.checks.privileged_roles_phishing_resistant_mfa import check_privileged_roles_phishing_resistant_mfa
 
 ALL_CHECKS: list[Check] = [
     Check(
@@ -90,5 +91,10 @@ ALL_CHECKS: list[Check] = [
         id="guest-access",
         name="Guest User Access Level",
         run=check_guest_access,
+    ),
+    Check(
+        id="privileged-roles-phishing-resistant-mfa",
+        name="Phishing-Resistant MFA for Privileged Roles",
+        run=check_privileged_roles_phishing_resistant_mfa,
     ),
 ]
