@@ -1607,6 +1607,20 @@ class TestGuestAccess:
         assert result.check_id == "guest-access"
         assert "Could not determine" in result.message
 
+    async def test_pass_when_unknown_role_id(self, mock_graph_client):
+        """Should pass with unknown role ID (still not same-as-members)."""
+        mock_graph_client.policies.authorization_policy.get.return_value = (
+            MockAuthorizationPolicy(
+                guest_user_role_id="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+            )
+        )
+
+        result = await check_guest_access(mock_graph_client)
+
+        assert result.status == "pass"
+        assert result.check_id == "guest-access"
+        assert "Unknown role ID" in result.details["access_level"]
+
 
 class TestPrivilegedRolesPhishingResistantMfa:
     """Tests for phishing-resistant MFA for privileged roles check."""

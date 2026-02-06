@@ -27,6 +27,7 @@ uv run pytest
 - `src/entra_spotter/cli.py` - CLI entry point, config, runner, output formatting
 - `src/entra_spotter/graph.py` - MS Graph authentication and client setup
 - `src/entra_spotter/checks/__init__.py` - CheckResult, Check dataclass, ALL_CHECKS registry
+- `src/entra_spotter/checks/_ca_helpers.py` - Shared helpers for Conditional Access checks (exclusion extraction, privileged role definitions)
 - `src/entra_spotter/checks/*.py` - Individual check implementations
 
 ### Check Pattern
@@ -85,6 +86,7 @@ Checks are explicitly registered in `checks/__init__.py` (no auto-discovery).
 5. **Explicit registration** - Checks are added to `ALL_CHECKS` list manually (no magic)
 6. **Function-based checks** - Simple functions, not classes with inheritance
 7. **Unified RBAC API** - Use `/roleManagement/directory/roleAssignments` instead of legacy `/directoryRoles` for role membership checks
+8. **Shared CA helpers** - Conditional Access checks share `get_policy_exclusions()`, `has_any_exclusions()`, and `PRIVILEGED_ROLES` via `_ca_helpers.py` to avoid duplication across check files
 
 ## Environment Variables
 
@@ -128,6 +130,7 @@ All are read-only. The tool never modifies any Entra ID configuration.
 2. Register in `checks/__init__.py` by adding to `ALL_CHECKS` list
 3. Add tests in `tests/test_checks.py`
 4. Update `SPEC.md` if new MS Graph permissions are required
+5. For Conditional Access checks, reuse helpers from `checks/_ca_helpers.py` (exclusion extraction, privileged role definitions)
 
 ## Code Style
 
