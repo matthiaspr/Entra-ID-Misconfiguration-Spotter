@@ -38,6 +38,7 @@ from entra_spotter.checks.device_code_blocked import check_device_code_blocked
 from entra_spotter.checks.privileged_roles_mfa import check_privileged_roles_mfa
 from entra_spotter.checks.global_admin_count import check_global_admin_count
 from entra_spotter.checks.guest_invite_policy import check_guest_invite_policy
+from entra_spotter.checks.guest_access import check_guest_access
 
 ALL_CHECKS: list[Check] = [
     Check(
@@ -84,5 +85,10 @@ ALL_CHECKS: list[Check] = [
         id="guest-invite-policy",
         name="Guest Invitation Policy",
         run=check_guest_invite_policy,
+    ),
+    Check(
+        id="guest-access",
+        name="Guest User Access Level",
+        run=check_guest_access,
     ),
 ]

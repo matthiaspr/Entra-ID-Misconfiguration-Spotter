@@ -13,6 +13,7 @@ from entra_spotter.checks.device_code_blocked import check_device_code_blocked
 from entra_spotter.checks.privileged_roles_mfa import check_privileged_roles_mfa, PRIVILEGED_ROLES
 from entra_spotter.checks.global_admin_count import check_global_admin_count, GLOBAL_ADMIN_ROLE_ID
 from entra_spotter.checks.guest_invite_policy import check_guest_invite_policy
+from entra_spotter.checks.guest_access import check_guest_access
 
 from conftest import (
     MockAuthorizationPolicy,
@@ -1537,4 +1538,66 @@ class TestGuestInvitePolicy:
 
         assert result.status == "error"
         assert result.check_id == "guest-invite-policy"
+        assert "Could not determine" in result.message
+
+
+class TestGuestAccess:
+    """Tests for guest user access level check."""
+
+    async def test_fail_when_same_access_as_members(self, mock_graph_client):
+        """Should fail when guests have the same access as members."""
+        mock_graph_client.policies.authorization_policy.get.return_value = (
+            MockAuthorizationPolicy(
+                guest_user_role_id="a0b1b346-4d3e-4e8b-98f8-753987be4970"
+            )
+        )
+
+        result = await check_guest_access(mock_graph_client)
+
+        assert result.status == "fail"
+        assert result.check_id == "guest-access"
+        assert "same access" in result.message.lower()
+        assert result.recommendation is not None
+        assert result.details["guest_user_role_id"] == "a0b1b346-4d3e-4e8b-98f8-753987be4970"
+
+    async def test_pass_when_limited_access(self, mock_graph_client):
+        """Should pass when guests have limited access (default)."""
+        mock_graph_client.policies.authorization_policy.get.return_value = (
+            MockAuthorizationPolicy(
+                guest_user_role_id="10dae51f-b6af-4016-8d66-8c2a99b929b3"
+            )
+        )
+
+        result = await check_guest_access(mock_graph_client)
+
+        assert result.status == "pass"
+        assert result.check_id == "guest-access"
+        assert "restricted" in result.message.lower()
+        assert result.details["guest_user_role_id"] == "10dae51f-b6af-4016-8d66-8c2a99b929b3"
+
+    async def test_pass_when_most_restrictive(self, mock_graph_client):
+        """Should pass when guests have the most restrictive access."""
+        mock_graph_client.policies.authorization_policy.get.return_value = (
+            MockAuthorizationPolicy(
+                guest_user_role_id="2af84b1e-32c8-42b7-82bc-daa82404023b"
+            )
+        )
+
+        result = await check_guest_access(mock_graph_client)
+
+        assert result.status == "pass"
+        assert result.check_id == "guest-access"
+        assert "restricted" in result.message.lower()
+        assert result.details["guest_user_role_id"] == "2af84b1e-32c8-42b7-82bc-daa82404023b"
+
+    async def test_error_when_property_missing(self, mock_graph_client):
+        """Should return error when guestUserRoleId is not in response."""
+        mock_graph_client.policies.authorization_policy.get.return_value = (
+            MockAuthorizationPolicy(permission_grant_policies_assigned=[])
+        )
+
+        result = await check_guest_access(mock_graph_client)
+
+        assert result.status == "error"
+        assert result.check_id == "guest-access"
         assert "Could not determine" in result.message

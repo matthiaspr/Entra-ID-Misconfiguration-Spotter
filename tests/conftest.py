@@ -40,11 +40,13 @@ class MockAuthorizationPolicy:
         self,
         permission_grant_policies_assigned: list[str] | None = None,
         allow_invites_from: str | None = None,
+        guest_user_role_id: str | None = None,
     ):
         self.default_user_role_permissions = MockDefaultUserRolePermissions(
             permission_grant_policies_assigned
         )
         self.allow_invites_from = allow_invites_from
+        self.guest_user_role_id = guest_user_role_id
 
 
 class MockReviewerScope:
