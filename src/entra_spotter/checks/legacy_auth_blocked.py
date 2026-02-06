@@ -3,12 +3,13 @@
 from msgraph import GraphServiceClient
 
 from entra_spotter.checks import CheckResult
+from entra_spotter.checks._ca_helpers import get_policy_exclusions, has_any_exclusions
 
 # Legacy authentication client app types that should be blocked
 LEGACY_CLIENT_TYPES = {"exchangeActiveSync", "other"}
 
 
-def _is_legacy_auth_blocking_policy(policy) -> bool:
+def _is_legacy_auth_blocking_policy(policy: object) -> bool:
     """Check if a policy blocks legacy authentication for all apps."""
     # Must have grant controls with block
     grant_controls = getattr(policy, "grant_controls", None)
@@ -40,41 +41,6 @@ def _is_legacy_auth_blocking_policy(policy) -> bool:
     return True
 
 
-def _get_policy_exclusions(policy) -> dict:
-    """Extract all exclusions from a policy."""
-    exclusions = {
-        "users": [],
-        "groups": [],
-        "roles": [],
-        "applications": [],
-    }
-
-    conditions = getattr(policy, "conditions", None)
-    if not conditions:
-        return exclusions
-
-    # User exclusions
-    users = getattr(conditions, "users", None)
-    if users:
-        exclusions["users"] = getattr(users, "exclude_users", None) or []
-        exclusions["groups"] = getattr(users, "exclude_groups", None) or []
-        exclusions["roles"] = getattr(users, "exclude_roles", None) or []
-
-    # Application exclusions
-    applications = getattr(conditions, "applications", None)
-    if applications:
-        exclusions["applications"] = (
-            getattr(applications, "exclude_applications", None) or []
-        )
-
-    return exclusions
-
-
-def _has_any_exclusions(exclusions: dict) -> bool:
-    """Check if there are any exclusions."""
-    return any(len(v) > 0 for v in exclusions.values())
-
-
 async def check_legacy_auth_blocked(client: GraphServiceClient) -> CheckResult:
     """Check for Conditional Access policy blocking legacy authentication.
 
@@ -102,7 +68,7 @@ async def check_legacy_auth_blocked(client: GraphServiceClient) -> CheckResult:
             "name": getattr(policy, "display_name", "Unknown"),
             "id": getattr(policy, "id", None),
             "state": state,
-            "exclusions": _get_policy_exclusions(policy),
+            "exclusions": get_policy_exclusions(policy),
         }
 
         if state == "enabled":
@@ -140,7 +106,7 @@ async def check_legacy_auth_blocked(client: GraphServiceClient) -> CheckResult:
 
     # Check if any enforced policy has exclusions
     policies_with_exclusions = [
-        p for p in enforced_policies if _has_any_exclusions(p["exclusions"])
+        p for p in enforced_policies if has_any_exclusions(p["exclusions"])
     ]
 
     if policies_with_exclusions:

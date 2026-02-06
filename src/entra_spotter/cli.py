@@ -8,6 +8,8 @@ from datetime import datetime, timezone
 
 import click
 
+from msgraph import GraphServiceClient
+
 from entra_spotter import __version__
 from entra_spotter.checks import ALL_CHECKS, Check, CheckResult
 from entra_spotter.graph import create_graph_client
@@ -47,7 +49,7 @@ def get_config(
 
 
 async def run_checks_async(
-    client,
+    client: GraphServiceClient,
     checks: list[Check],
 ) -> list[tuple[Check, CheckResult]]:
     """Run checks asynchronously and return results.
