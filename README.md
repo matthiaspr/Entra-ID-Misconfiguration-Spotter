@@ -68,6 +68,12 @@ uv run entra-spotter --list-checks
 | `guest-invite-policy` | Checks who can invite guest users to the tenant |
 | `guest-access` | Checks that guest users do not have the same access as members |
 | `privileged-roles-phishing-resistant-mfa` | Verifies phishing-resistant MFA is required for privileged admin roles |
+| `shadow-admins-app-owners` | Identifies users who own service principals with privileged roles or sensitive Graph permissions |
+| `shadow-admins-group-owners` | Identifies users who own role-assignable groups with privileged roles |
+| `dynamic-group-hijack` | Detects dynamic groups with privileged roles using mutable membership rule attributes |
+| `unused-apps-cleanup` | Identifies privileged service principals inactive for over 180 days |
+| `auth-methods-number-matching` | Verifies number matching is enforced in Microsoft Authenticator |
+| `break-glass-exclusion` | Verifies emergency access accounts are excluded from all CA policies |
 
 ## Required Permissions
 
@@ -77,7 +83,8 @@ The service principal needs these MS Graph application permissions:
 - `RoleManagement.Read.Directory`
 - `Application.Read.All`
 - `User.Read.All` - for resolving reviewer display names
-- `Group.Read.All` - for resolving reviewer display names
+- `Group.Read.All` - for resolving reviewer display names and group ownership
+- `AuthenticationMethodsPolicy.Read` - for reading authentication method configurations
 
 ## Development
 
