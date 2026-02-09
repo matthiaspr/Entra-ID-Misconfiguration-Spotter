@@ -1,5 +1,6 @@
 """Tests for all checks."""
 
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock
 
 import pytest
@@ -18,6 +19,12 @@ from entra_spotter.checks.privileged_roles_phishing_resistant_mfa import (
     check_privileged_roles_phishing_resistant_mfa,
     PRIVILEGED_ROLES as PHISHING_RESISTANT_PRIVILEGED_ROLES,
 )
+from entra_spotter.checks.shadow_admins_app_owners import check_shadow_admins_app_owners
+from entra_spotter.checks.shadow_admins_group_owners import check_shadow_admins_group_owners
+from entra_spotter.checks.dynamic_group_hijack import check_dynamic_group_hijack
+from entra_spotter.checks.unused_apps_cleanup import check_unused_apps_cleanup
+from entra_spotter.checks.auth_methods_number_matching import check_auth_methods_number_matching
+from entra_spotter.checks.break_glass_exclusion import check_break_glass_exclusion
 
 from conftest import (
     MockAuthorizationPolicy,
@@ -42,6 +49,14 @@ from conftest import (
     MockCAConditions,
     MockConditionalAccessPolicy,
     MockCAPoliciesResponse,
+    MockOwnersResponse,
+    MockDynamicGroup,
+    MockSignInActivity,
+    MockServicePrincipalDetail,
+    MockNumberMatchingState,
+    MockIncludeTarget,
+    MockFeatureSettings,
+    MockAuthenticatorConfig,
 )
 
 
@@ -1846,3 +1861,577 @@ class TestPrivilegedRolesPhishingResistantMfa:
 
         assert result.status == "fail"
         assert "Global Administrator" in result.details["enforced_policies"][0]["covered_roles"]
+
+
+# Global Admin role ID used across shadow admin tests
+GA_ROLE_ID = "62e90394-69f5-4237-9190-012177145e10"
+
+
+class TestShadowAdminsAppOwners:
+    """Tests for shadow admins via app ownership check."""
+
+    async def test_pass_when_no_privileged_sps(self, mock_graph_client):
+        """Should pass when no service principals hold privileged roles."""
+        mock_graph_client.role_management.directory.role_assignments.get.return_value = (
+            MockRoleAssignmentsResponse([])
+        )
+        mock_graph_client.service_principals.get.return_value = MockServicePrincipalsResponse([])
+
+        result = await check_shadow_admins_app_owners(mock_graph_client)
+
+        assert result.status == "pass"
+        assert result.check_id == "shadow-admins-app-owners"
+
+    async def test_pass_when_no_user_owners(self, mock_graph_client):
+        """Should pass when privileged SPs have no user owners."""
+        sp_principal = MockRoleMember("sp-1", "Privileged App", "#microsoft.graph.servicePrincipal")
+        mock_graph_client.role_management.directory.role_assignments.get.return_value = (
+            MockRoleAssignmentsResponse([
+                MockRoleAssignment(GA_ROLE_ID, "sp-1", sp_principal),
+            ])
+        )
+        mock_graph_client.service_principals.get.return_value = MockServicePrincipalsResponse([])
+        # SP has no owners
+        mock_graph_client.service_principals.by_service_principal_id.return_value.owners.get.return_value = (
+            MockOwnersResponse([])
+        )
+
+        result = await check_shadow_admins_app_owners(mock_graph_client)
+
+        assert result.status == "pass"
+
+    async def test_warning_when_user_owns_privileged_sp(self, mock_graph_client):
+        """Should warn when a user owns a service principal with a privileged role."""
+        sp_principal = MockRoleMember("sp-1", "Privileged App", "#microsoft.graph.servicePrincipal")
+        mock_graph_client.role_management.directory.role_assignments.get.return_value = (
+            MockRoleAssignmentsResponse([
+                MockRoleAssignment(GA_ROLE_ID, "sp-1", sp_principal),
+            ])
+        )
+        mock_graph_client.service_principals.get.return_value = MockServicePrincipalsResponse([])
+
+        user_owner = MockRoleMember("user-1", "Shadow Admin User", "#microsoft.graph.user")
+        mock_graph_client.service_principals.by_service_principal_id.return_value.owners.get.return_value = (
+            MockOwnersResponse([user_owner])
+        )
+
+        result = await check_shadow_admins_app_owners(mock_graph_client)
+
+        assert result.status == "warning"
+        assert result.check_id == "shadow-admins-app-owners"
+        assert "1 user(s)" in result.message
+        assert "shadow admins" in result.message
+        assert len(result.details["shadow_admins"]) == 1
+        assert result.details["shadow_admins"][0]["user_display_name"] == "Shadow Admin User"
+
+    async def test_warning_with_sensitive_graph_role(self, mock_graph_client):
+        """Should warn when user owns SP with sensitive Graph app role."""
+        mock_graph_client.role_management.directory.role_assignments.get.return_value = (
+            MockRoleAssignmentsResponse([])
+        )
+        mock_graph_client.service_principals.get.return_value = MockServicePrincipalsResponse([
+            MockServicePrincipal(
+                id="sp-2",
+                display_name="Graph Admin App",
+                app_role_assignments=[
+                    MockAppRoleAssignment(app_role_id="9e3f62cf-ca93-4989-b6ce-bf83c28f9fe8"),
+                ],
+            )
+        ])
+
+        user_owner = MockRoleMember("user-1", "Shadow Admin", "#microsoft.graph.user")
+        mock_graph_client.service_principals.by_service_principal_id.return_value.owners.get.return_value = (
+            MockOwnersResponse([user_owner])
+        )
+
+        result = await check_shadow_admins_app_owners(mock_graph_client)
+
+        assert result.status == "warning"
+        assert len(result.details["shadow_admins"]) == 1
+
+
+class TestShadowAdminsGroupOwners:
+    """Tests for shadow admins via group ownership check."""
+
+    async def test_pass_when_no_privileged_groups(self, mock_graph_client):
+        """Should pass when no groups hold privileged roles."""
+        mock_graph_client.role_management.directory.role_assignments.get.return_value = (
+            MockRoleAssignmentsResponse([])
+        )
+
+        result = await check_shadow_admins_group_owners(mock_graph_client)
+
+        assert result.status == "pass"
+        assert result.check_id == "shadow-admins-group-owners"
+
+    async def test_pass_when_no_user_owners(self, mock_graph_client):
+        """Should pass when privileged groups have no user owners."""
+        group_principal = MockRoleMember("group-1", "Admin Group", "#microsoft.graph.group")
+        mock_graph_client.role_management.directory.role_assignments.get.return_value = (
+            MockRoleAssignmentsResponse([
+                MockRoleAssignment(GA_ROLE_ID, "group-1", group_principal),
+            ])
+        )
+        mock_graph_client.groups.by_group_id.return_value.owners.get.return_value = (
+            MockOwnersResponse([])
+        )
+
+        result = await check_shadow_admins_group_owners(mock_graph_client)
+
+        assert result.status == "pass"
+
+    async def test_warning_when_user_owns_privileged_group(self, mock_graph_client):
+        """Should warn when a user owns a group with a privileged role."""
+        group_principal = MockRoleMember("group-1", "Admin Group", "#microsoft.graph.group")
+        mock_graph_client.role_management.directory.role_assignments.get.return_value = (
+            MockRoleAssignmentsResponse([
+                MockRoleAssignment(GA_ROLE_ID, "group-1", group_principal),
+            ])
+        )
+
+        user_owner = MockRoleMember("user-1", "Group Owner", "#microsoft.graph.user")
+        mock_graph_client.groups.by_group_id.return_value.owners.get.return_value = (
+            MockOwnersResponse([user_owner])
+        )
+
+        result = await check_shadow_admins_group_owners(mock_graph_client)
+
+        assert result.status == "warning"
+        assert result.check_id == "shadow-admins-group-owners"
+        assert "1 user(s)" in result.message
+        assert len(result.details["shadow_admins"]) == 1
+        assert result.details["shadow_admins"][0]["user_display_name"] == "Group Owner"
+        assert "Global Administrator" in result.details["shadow_admins"][0]["roles"]
+
+    async def test_ignores_non_group_principals(self, mock_graph_client):
+        """Should not check ownership of users or SPs in privileged roles."""
+        user_principal = MockRoleMember("user-1", "Admin", "#microsoft.graph.user")
+        sp_principal = MockRoleMember("sp-1", "App", "#microsoft.graph.servicePrincipal")
+        mock_graph_client.role_management.directory.role_assignments.get.return_value = (
+            MockRoleAssignmentsResponse([
+                MockRoleAssignment(GA_ROLE_ID, "user-1", user_principal),
+                MockRoleAssignment(GA_ROLE_ID, "sp-1", sp_principal),
+            ])
+        )
+
+        result = await check_shadow_admins_group_owners(mock_graph_client)
+
+        assert result.status == "pass"
+
+
+class TestDynamicGroupHijack:
+    """Tests for dynamic group privilege escalation check."""
+
+    async def test_pass_when_no_privileged_groups(self, mock_graph_client):
+        """Should pass when no groups hold privileged roles."""
+        mock_graph_client.role_management.directory.role_assignments.get.return_value = (
+            MockRoleAssignmentsResponse([])
+        )
+
+        result = await check_dynamic_group_hijack(mock_graph_client)
+
+        assert result.status == "pass"
+        assert result.check_id == "dynamic-group-hijack"
+
+    async def test_pass_when_privileged_group_is_static(self, mock_graph_client):
+        """Should pass when privileged groups are not dynamic."""
+        group_principal = MockRoleMember("group-1", "Admin Group", "#microsoft.graph.group")
+        mock_graph_client.role_management.directory.role_assignments.get.return_value = (
+            MockRoleAssignmentsResponse([
+                MockRoleAssignment(GA_ROLE_ID, "group-1", group_principal),
+            ])
+        )
+        # Group is static (no DynamicMembership type)
+        mock_graph_client.groups.by_group_id.return_value.get.return_value = (
+            MockDynamicGroup(
+                id="group-1",
+                display_name="Admin Group",
+                group_types=["Unified"],
+                membership_rule=None,
+            )
+        )
+
+        result = await check_dynamic_group_hijack(mock_graph_client)
+
+        assert result.status == "pass"
+        assert "No dynamic groups" in result.message
+
+    async def test_fail_when_dynamic_group_uses_mutable_attribute(self, mock_graph_client):
+        """Should fail when dynamic group uses mutable attribute like department."""
+        group_principal = MockRoleMember("group-1", "Dynamic Admin Group", "#microsoft.graph.group")
+        mock_graph_client.role_management.directory.role_assignments.get.return_value = (
+            MockRoleAssignmentsResponse([
+                MockRoleAssignment(GA_ROLE_ID, "group-1", group_principal),
+            ])
+        )
+        mock_graph_client.groups.by_group_id.return_value.get.return_value = (
+            MockDynamicGroup(
+                id="group-1",
+                display_name="Dynamic Admin Group",
+                group_types=["DynamicMembership"],
+                membership_rule='(user.department -eq "IT Security")',
+            )
+        )
+
+        result = await check_dynamic_group_hijack(mock_graph_client)
+
+        assert result.status == "fail"
+        assert result.check_id == "dynamic-group-hijack"
+        assert "mutable attributes" in result.message
+        assert len(result.details["mutable_rule_groups"]) == 1
+        assert "department" in result.details["mutable_rule_groups"][0]["mutable_attributes"]
+
+    async def test_warning_when_dynamic_group_uses_immutable_attribute(self, mock_graph_client):
+        """Should warn when dynamic group exists but uses non-mutable attributes."""
+        group_principal = MockRoleMember("group-1", "Dynamic Group", "#microsoft.graph.group")
+        mock_graph_client.role_management.directory.role_assignments.get.return_value = (
+            MockRoleAssignmentsResponse([
+                MockRoleAssignment(GA_ROLE_ID, "group-1", group_principal),
+            ])
+        )
+        mock_graph_client.groups.by_group_id.return_value.get.return_value = (
+            MockDynamicGroup(
+                id="group-1",
+                display_name="Dynamic Group",
+                group_types=["DynamicMembership"],
+                membership_rule='(user.objectId -in ["abc-123"])',
+            )
+        )
+
+        result = await check_dynamic_group_hijack(mock_graph_client)
+
+        assert result.status == "warning"
+        assert "No mutable attributes" in result.message
+
+    async def test_detects_multiple_mutable_attributes(self, mock_graph_client):
+        """Should detect multiple mutable attributes in a rule."""
+        group_principal = MockRoleMember("group-1", "Group", "#microsoft.graph.group")
+        mock_graph_client.role_management.directory.role_assignments.get.return_value = (
+            MockRoleAssignmentsResponse([
+                MockRoleAssignment(GA_ROLE_ID, "group-1", group_principal),
+            ])
+        )
+        mock_graph_client.groups.by_group_id.return_value.get.return_value = (
+            MockDynamicGroup(
+                id="group-1",
+                display_name="Group",
+                group_types=["DynamicMembership"],
+                membership_rule='(user.department -eq "IT") -and (user.jobTitle -eq "Admin")',
+            )
+        )
+
+        result = await check_dynamic_group_hijack(mock_graph_client)
+
+        assert result.status == "fail"
+        attrs = result.details["mutable_rule_groups"][0]["mutable_attributes"]
+        assert "department" in attrs
+        assert "jobtitle" in attrs
+
+
+class TestUnusedAppsCleanup:
+    """Tests for unused privileged apps check."""
+
+    async def test_pass_when_no_privileged_sps(self, mock_graph_client):
+        """Should pass when no service principals hold privileged roles."""
+        mock_graph_client.role_management.directory.role_assignments.get.return_value = (
+            MockRoleAssignmentsResponse([])
+        )
+        mock_graph_client.service_principals.get.return_value = MockServicePrincipalsResponse([])
+
+        result = await check_unused_apps_cleanup(mock_graph_client)
+
+        assert result.status == "pass"
+        assert result.check_id == "unused-apps-cleanup"
+
+    async def test_pass_when_all_sps_recently_active(self, mock_graph_client):
+        """Should pass when all privileged SPs have recent sign-in activity."""
+        sp_principal = MockRoleMember("sp-1", "Active App", "#microsoft.graph.servicePrincipal")
+        mock_graph_client.role_management.directory.role_assignments.get.return_value = (
+            MockRoleAssignmentsResponse([
+                MockRoleAssignment(GA_ROLE_ID, "sp-1", sp_principal),
+            ])
+        )
+        mock_graph_client.service_principals.get.return_value = MockServicePrincipalsResponse([])
+
+        recent_date = datetime.now(timezone.utc) - timedelta(days=30)
+        mock_graph_client.service_principals.by_service_principal_id.return_value.get.return_value = (
+            MockServicePrincipalDetail(
+                id="sp-1",
+                display_name="Active App",
+                sign_in_activity=MockSignInActivity(last_sign_in_date_time=recent_date),
+            )
+        )
+
+        result = await check_unused_apps_cleanup(mock_graph_client)
+
+        assert result.status == "pass"
+
+    async def test_warning_when_sp_inactive(self, mock_graph_client):
+        """Should warn when privileged SP hasn't signed in for >180 days."""
+        sp_principal = MockRoleMember("sp-1", "Stale App", "#microsoft.graph.servicePrincipal")
+        mock_graph_client.role_management.directory.role_assignments.get.return_value = (
+            MockRoleAssignmentsResponse([
+                MockRoleAssignment(GA_ROLE_ID, "sp-1", sp_principal),
+            ])
+        )
+        mock_graph_client.service_principals.get.return_value = MockServicePrincipalsResponse([])
+
+        old_date = datetime.now(timezone.utc) - timedelta(days=200)
+        mock_graph_client.service_principals.by_service_principal_id.return_value.get.return_value = (
+            MockServicePrincipalDetail(
+                id="sp-1",
+                display_name="Stale App",
+                sign_in_activity=MockSignInActivity(last_sign_in_date_time=old_date),
+            )
+        )
+
+        result = await check_unused_apps_cleanup(mock_graph_client)
+
+        assert result.status == "warning"
+        assert result.check_id == "unused-apps-cleanup"
+        assert "1 privileged service principal(s)" in result.message
+        assert len(result.details["stale_apps"]) == 1
+
+    async def test_warning_when_sp_never_signed_in(self, mock_graph_client):
+        """Should warn when privileged SP has never signed in."""
+        sp_principal = MockRoleMember("sp-1", "Never Used App", "#microsoft.graph.servicePrincipal")
+        mock_graph_client.role_management.directory.role_assignments.get.return_value = (
+            MockRoleAssignmentsResponse([
+                MockRoleAssignment(GA_ROLE_ID, "sp-1", sp_principal),
+            ])
+        )
+        mock_graph_client.service_principals.get.return_value = MockServicePrincipalsResponse([])
+
+        mock_graph_client.service_principals.by_service_principal_id.return_value.get.return_value = (
+            MockServicePrincipalDetail(
+                id="sp-1",
+                display_name="Never Used App",
+                sign_in_activity=None,
+            )
+        )
+
+        result = await check_unused_apps_cleanup(mock_graph_client)
+
+        assert result.status == "warning"
+        assert result.details["stale_apps"][0]["last_sign_in"] == "Never"
+
+
+class TestAuthMethodsNumberMatching:
+    """Tests for Authenticator number matching check."""
+
+    async def test_pass_when_number_matching_enabled(self, mock_graph_client):
+        """Should pass when number matching is explicitly enabled."""
+        config = MockAuthenticatorConfig(
+            state="enabled",
+            feature_settings=MockFeatureSettings(
+                number_matching_required_state=MockNumberMatchingState(state="enabled"),
+            ),
+        )
+        mock_graph_client.policies.authentication_methods_policy.authentication_method_configurations.by_authentication_method_configuration_id.return_value.get.return_value = config
+
+        result = await check_auth_methods_number_matching(mock_graph_client)
+
+        assert result.status == "pass"
+        assert result.check_id == "auth-methods-number-matching"
+
+    async def test_pass_when_default_settings(self, mock_graph_client):
+        """Should pass when using default settings (Microsoft-managed)."""
+        config = MockAuthenticatorConfig(state="enabled", feature_settings=None)
+        mock_graph_client.policies.authentication_methods_policy.authentication_method_configurations.by_authentication_method_configuration_id.return_value.get.return_value = config
+
+        result = await check_auth_methods_number_matching(mock_graph_client)
+
+        assert result.status == "pass"
+        assert "default" in result.message.lower() or "Microsoft-managed" in result.message
+
+    async def test_fail_when_number_matching_disabled(self, mock_graph_client):
+        """Should fail when number matching is explicitly disabled."""
+        config = MockAuthenticatorConfig(
+            state="enabled",
+            feature_settings=MockFeatureSettings(
+                number_matching_required_state=MockNumberMatchingState(state="disabled"),
+            ),
+        )
+        mock_graph_client.policies.authentication_methods_policy.authentication_method_configurations.by_authentication_method_configuration_id.return_value.get.return_value = config
+
+        result = await check_auth_methods_number_matching(mock_graph_client)
+
+        assert result.status == "fail"
+        assert result.check_id == "auth-methods-number-matching"
+        assert "disabled" in result.message.lower()
+        assert result.recommendation is not None
+
+    async def test_warning_when_authenticator_disabled(self, mock_graph_client):
+        """Should warn when Microsoft Authenticator is disabled entirely."""
+        config = MockAuthenticatorConfig(state="disabled", feature_settings=None)
+        mock_graph_client.policies.authentication_methods_policy.authentication_method_configurations.by_authentication_method_configuration_id.return_value.get.return_value = config
+
+        result = await check_auth_methods_number_matching(mock_graph_client)
+
+        assert result.status == "warning"
+        assert "disabled" in result.message.lower()
+
+    async def test_warning_when_only_specific_groups(self, mock_graph_client):
+        """Should warn when number matching is only for specific groups."""
+        config = MockAuthenticatorConfig(
+            state="enabled",
+            feature_settings=MockFeatureSettings(
+                number_matching_required_state=MockNumberMatchingState(
+                    state="enabled",
+                    include_target=MockIncludeTarget(target_type="group"),
+                ),
+            ),
+        )
+        mock_graph_client.policies.authentication_methods_policy.authentication_method_configurations.by_authentication_method_configuration_id.return_value.get.return_value = config
+
+        result = await check_auth_methods_number_matching(mock_graph_client)
+
+        assert result.status == "warning"
+        assert "specific groups" in result.message.lower()
+
+    async def test_pass_when_microsoft_managed_state(self, mock_graph_client):
+        """Should pass when state is 'default' (Microsoft-managed)."""
+        config = MockAuthenticatorConfig(
+            state="enabled",
+            feature_settings=MockFeatureSettings(
+                number_matching_required_state=MockNumberMatchingState(state="default"),
+            ),
+        )
+        mock_graph_client.policies.authentication_methods_policy.authentication_method_configurations.by_authentication_method_configuration_id.return_value.get.return_value = config
+
+        result = await check_auth_methods_number_matching(mock_graph_client)
+
+        assert result.status == "pass"
+        assert "Microsoft-managed" in result.message
+
+
+class TestBreakGlassExclusion:
+    """Tests for break-glass account CA exclusion check."""
+
+    def _create_enabled_policy(
+        self,
+        policy_id: str,
+        name: str,
+        exclude_users: list[str] | None = None,
+    ) -> MockConditionalAccessPolicy:
+        """Helper to create an enabled CA policy with optional user exclusions."""
+        return MockConditionalAccessPolicy(
+            id=policy_id,
+            display_name=name,
+            state="enabled",
+            conditions=MockCAConditions(
+                users=MockCAUsers(
+                    include_users=["All"],
+                    exclude_users=exclude_users,
+                ),
+                applications=MockCAApplications(include_applications=["All"]),
+            ),
+            grant_controls=MockCAGrantControls(built_in_controls=["mfa"]),
+        )
+
+    async def test_pass_when_two_accounts_excluded_from_all(self, mock_graph_client):
+        """Should pass when 2+ accounts are excluded from all enabled policies."""
+        bg1 = "break-glass-1"
+        bg2 = "break-glass-2"
+        policies = [
+            self._create_enabled_policy("p1", "Policy 1", exclude_users=[bg1, bg2]),
+            self._create_enabled_policy("p2", "Policy 2", exclude_users=[bg1, bg2]),
+        ]
+        mock_graph_client.identity.conditional_access.policies.get.return_value = (
+            MockCAPoliciesResponse(policies)
+        )
+
+        result = await check_break_glass_exclusion(mock_graph_client)
+
+        assert result.status == "pass"
+        assert result.check_id == "break-glass-exclusion"
+        assert "2 account(s)" in result.message
+
+    async def test_warning_when_only_one_account_excluded(self, mock_graph_client):
+        """Should warn when only 1 account is excluded from all policies."""
+        bg1 = "break-glass-1"
+        policies = [
+            self._create_enabled_policy("p1", "Policy 1", exclude_users=[bg1, "other-user"]),
+            self._create_enabled_policy("p2", "Policy 2", exclude_users=[bg1]),
+        ]
+        mock_graph_client.identity.conditional_access.policies.get.return_value = (
+            MockCAPoliciesResponse(policies)
+        )
+
+        result = await check_break_glass_exclusion(mock_graph_client)
+
+        assert result.status == "warning"
+        assert "Only 1 account" in result.message
+
+    async def test_fail_when_no_accounts_excluded_from_all(self, mock_graph_client):
+        """Should fail when no account is excluded from all policies."""
+        policies = [
+            self._create_enabled_policy("p1", "Policy 1", exclude_users=["user-a"]),
+            self._create_enabled_policy("p2", "Policy 2", exclude_users=["user-b"]),
+        ]
+        mock_graph_client.identity.conditional_access.policies.get.return_value = (
+            MockCAPoliciesResponse(policies)
+        )
+
+        result = await check_break_glass_exclusion(mock_graph_client)
+
+        assert result.status == "fail"
+        assert result.check_id == "break-glass-exclusion"
+        assert "No user account" in result.message
+        assert result.recommendation is not None
+
+    async def test_fail_when_no_exclusions_at_all(self, mock_graph_client):
+        """Should fail when policies have no user exclusions."""
+        policies = [
+            self._create_enabled_policy("p1", "Policy 1"),
+            self._create_enabled_policy("p2", "Policy 2"),
+        ]
+        mock_graph_client.identity.conditional_access.policies.get.return_value = (
+            MockCAPoliciesResponse(policies)
+        )
+
+        result = await check_break_glass_exclusion(mock_graph_client)
+
+        assert result.status == "fail"
+
+    async def test_warning_when_no_enabled_policies(self, mock_graph_client):
+        """Should warn when no enabled CA policies exist."""
+        # Only a disabled policy
+        policy = MockConditionalAccessPolicy(
+            id="p1", display_name="Disabled Policy", state="disabled",
+            conditions=MockCAConditions(),
+        )
+        mock_graph_client.identity.conditional_access.policies.get.return_value = (
+            MockCAPoliciesResponse([policy])
+        )
+
+        result = await check_break_glass_exclusion(mock_graph_client)
+
+        assert result.status == "warning"
+        assert "No enabled" in result.message
+
+    async def test_ignores_report_only_policies(self, mock_graph_client):
+        """Should only check enabled policies, not report-only ones."""
+        bg1 = "break-glass-1"
+        bg2 = "break-glass-2"
+        policies = [
+            self._create_enabled_policy("p1", "Enabled Policy", exclude_users=[bg1, bg2]),
+            MockConditionalAccessPolicy(
+                id="p2",
+                display_name="Report Only Policy",
+                state="enabledForReportingButNotEnforced",
+                conditions=MockCAConditions(
+                    users=MockCAUsers(include_users=["All"]),
+                    applications=MockCAApplications(include_applications=["All"]),
+                ),
+                grant_controls=MockCAGrantControls(built_in_controls=["mfa"]),
+            ),
+        ]
+        mock_graph_client.identity.conditional_access.policies.get.return_value = (
+            MockCAPoliciesResponse(policies)
+        )
+
+        result = await check_break_glass_exclusion(mock_graph_client)
+
+        assert result.status == "pass"
+        assert result.details["enabled_policy_count"] == 1
