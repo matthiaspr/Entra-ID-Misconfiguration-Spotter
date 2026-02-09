@@ -18,11 +18,26 @@ def mock_graph_client():
     # For reviewer resolution and user lookup
     client.users.by_user_id = MagicMock(return_value=MagicMock(get=AsyncMock()))
     client.groups.by_group_id = MagicMock(
-        return_value=MagicMock(get=AsyncMock(), members=MagicMock(get=AsyncMock()))
+        return_value=MagicMock(
+            get=AsyncMock(),
+            members=MagicMock(get=AsyncMock()),
+            owners=MagicMock(get=AsyncMock()),
+        )
     )
     client.directory_roles.by_directory_role_id = MagicMock(return_value=MagicMock(get=AsyncMock()))
     # For role definition resolution
     client.role_management.directory.role_definitions.by_unified_role_definition_id = MagicMock(
+        return_value=MagicMock(get=AsyncMock())
+    )
+    # For service principal owners and details lookup
+    client.service_principals.by_service_principal_id = MagicMock(
+        return_value=MagicMock(
+            get=AsyncMock(),
+            owners=MagicMock(get=AsyncMock()),
+        )
+    )
+    # For authentication methods policy
+    client.policies.authentication_methods_policy.authentication_method_configurations.by_authentication_method_configuration_id = MagicMock(
         return_value=MagicMock(get=AsyncMock())
     )
     return client
@@ -246,3 +261,56 @@ class MockConditionalAccessPolicy:
 class MockCAPoliciesResponse:
     def __init__(self, policies: list[MockConditionalAccessPolicy]):
         self.value = policies
+
+
+class MockOwnersResponse:
+    def __init__(self, owners: list):
+        self.value = owners
+
+
+class MockDynamicGroup:
+    def __init__(
+        self,
+        id: str,
+        display_name: str,
+        group_types: list[str] | None = None,
+        membership_rule: str | None = None,
+    ):
+        self.id = id
+        self.display_name = display_name
+        self.group_types = group_types
+        self.membership_rule = membership_rule
+
+
+class MockSignInActivity:
+    def __init__(self, last_sign_in_date_time=None):
+        self.last_sign_in_date_time = last_sign_in_date_time
+
+
+class MockServicePrincipalDetail:
+    def __init__(self, id: str, display_name: str, sign_in_activity=None):
+        self.id = id
+        self.display_name = display_name
+        self.sign_in_activity = sign_in_activity
+
+
+class MockNumberMatchingState:
+    def __init__(self, state: str, include_target=None):
+        self.state = state
+        self.include_target = include_target
+
+
+class MockIncludeTarget:
+    def __init__(self, target_type: str):
+        self.target_type = target_type
+
+
+class MockFeatureSettings:
+    def __init__(self, number_matching_required_state=None):
+        self.number_matching_required_state = number_matching_required_state
+
+
+class MockAuthenticatorConfig:
+    def __init__(self, state: str, feature_settings=None):
+        self.state = state
+        self.feature_settings = feature_settings

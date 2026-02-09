@@ -76,6 +76,12 @@ Checks are explicitly registered in `checks/__init__.py` (no auto-discovery).
 | `guest-invite-policy` | `guest_invite_policy.py` | `GET /policies/authorizationPolicy` (allowInvitesFrom property) |
 | `guest-access` | `guest_access.py` | `GET /policies/authorizationPolicy` (guestUserRoleId property) |
 | `privileged-roles-phishing-resistant-mfa` | `privileged_roles_phishing_resistant_mfa.py` | `GET /identity/conditionalAccess/policies` |
+| `shadow-admins-app-owners` | `shadow_admins_app_owners.py` | `GET /roleManagement/directory/roleAssignments?$expand=principal`, `GET /servicePrincipals?$expand=appRoleAssignments`, `GET /servicePrincipals/{id}/owners` |
+| `shadow-admins-group-owners` | `shadow_admins_group_owners.py` | `GET /roleManagement/directory/roleAssignments?$expand=principal`, `GET /groups/{id}/owners` |
+| `dynamic-group-hijack` | `dynamic_group_hijack.py` | `GET /roleManagement/directory/roleAssignments?$expand=principal`, `GET /groups/{id}` |
+| `unused-apps-cleanup` | `unused_apps_cleanup.py` | `GET /roleManagement/directory/roleAssignments?$expand=principal`, `GET /servicePrincipals?$expand=appRoleAssignments`, `GET /servicePrincipals/{id}` |
+| `auth-methods-number-matching` | `auth_methods_number_matching.py` | `GET /policies/authenticationMethodsPolicy/authenticationMethodConfigurations/MicrosoftAuthenticator` |
+| `break-glass-exclusion` | `break_glass_exclusion.py` | `GET /identity/conditionalAccess/policies` |
 
 ## Design Decisions
 
@@ -102,7 +108,8 @@ export AZURE_CLIENT_SECRET="your-client-secret"
 - `RoleManagement.Read.Directory` (Application)
 - `Application.Read.All` (Application)
 - `User.Read.All` (Application) - for resolving reviewer display names
-- `Group.Read.All` (Application) - for resolving reviewer display names
+- `Group.Read.All` (Application) - for resolving reviewer display names and group ownership
+- `AuthenticationMethodsPolicy.Read` (Application) - for reading authentication method configurations
 
 All are read-only. The tool never modifies any Entra ID configuration.
 
