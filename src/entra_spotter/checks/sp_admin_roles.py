@@ -4,6 +4,7 @@ from msgraph import GraphServiceClient
 from msgraph.generated.role_management.directory.role_assignments.role_assignments_request_builder import (
     RoleAssignmentsRequestBuilder,
 )
+from kiota_abstractions.base_request_configuration import RequestConfiguration
 
 from entra_spotter.checks import CheckResult
 from entra_spotter.checks._shared import PRIVILEGED_ROLES
@@ -22,9 +23,7 @@ async def check_sp_admin_roles(client: GraphServiceClient) -> CheckResult:
     query_params = RoleAssignmentsRequestBuilder.RoleAssignmentsRequestBuilderGetQueryParameters(
         expand=["principal"],
     )
-    request_config = RoleAssignmentsRequestBuilder.RoleAssignmentsRequestBuilderGetRequestConfiguration(
-        query_parameters=query_params,
-    )
+    request_config = RequestConfiguration(query_parameters=query_params)
     response = await client.role_management.directory.role_assignments.get(
         request_configuration=request_config
     )
