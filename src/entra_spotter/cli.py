@@ -95,7 +95,7 @@ def format_text_output(results: list[tuple[Check, CheckResult]]) -> str:
         if result.recommendation:
             lines.append(f"       Recommendation: {result.recommendation}")
 
-        if result.details and result.status == "warning":
+        if result.details and result.status in ("fail", "warning"):
             # Show service principal details for sp-admin-roles and sp-graph-roles
             if "service_principals" in result.details:
                 for sp in result.details["service_principals"]:
@@ -219,15 +219,13 @@ def main(
     # Handle --list-checks
     if list_checks:
         click.echo("Available checks:")
+        max_width = max(len(c.id) for c in ALL_CHECKS)
         for check in ALL_CHECKS:
-            click.echo(f"  {check.id:<25} {check.name}")
+            click.echo(f"  {check.id:<{max_width}}  {check.name}")
         return
 
     # Get and validate configuration
-    try:
-        tenant, client, secret = get_config(tenant_id, client_id, client_secret)
-    except click.ClickException:
-        raise
+    tenant, client, secret = get_config(tenant_id, client_id, client_secret)
 
     # Filter checks if specific ones requested
     if check_ids:
