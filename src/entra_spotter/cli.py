@@ -104,11 +104,14 @@ def format_text_output(results: list[tuple[Check, CheckResult]]) -> str:
                     elif "app_role" in sp:
                         lines.append(f"         - \"{sp['display_name']}\" → {sp['app_role']}")
 
-            # Show stale app details for unused-apps-cleanup
-            if "stale_apps" in result.details:
-                for app in result.details["stale_apps"]:
-                    last = app["last_sign_in"]
-                    lines.append(f"         - \"{app['display_name']}\" (last sign-in: {last})")
+            if "shadow_admins" in result.details:
+                for admin in result.details["shadow_admins"]:
+                    sp_name = admin.get("service_principal_display_name", admin.get("service_principal_id", "Unknown"))
+                    user_name = admin.get("user_principal_name") or admin.get("user_display_name", admin.get("user_id", "Unknown"))
+                    source = admin.get("ownership_source", "")
+                    source_label = f" (via {source.replace('_', ' ')})" if source else ""
+                    lines.append(f"         - \"{sp_name}\" owned by \"{user_name}\"{source_label}")
+
 
         lines.append("")
 
