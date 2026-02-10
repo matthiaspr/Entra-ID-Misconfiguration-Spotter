@@ -111,7 +111,16 @@ async def check_unused_apps_cleanup(client: GraphServiceClient) -> CheckResult:
         last_sign_in = None
         sign_in_activity = getattr(sp, "sign_in_activity", None)
         if sign_in_activity:
-            last_sign_in = getattr(sign_in_activity, "last_sign_in_date_time", None)
+            # Use lastSuccessfulSignInDateTime (covers both interactive and
+            # non-interactive flows) with fallback to the individual timestamps.
+            # Service principals typically use client credentials (non-interactive),
+            # so lastSignInDateTime alone misses most SP activity.
+            candidates = [
+                getattr(sign_in_activity, "last_successful_sign_in_date_time", None),
+                getattr(sign_in_activity, "last_non_interactive_sign_in_date_time", None),
+                getattr(sign_in_activity, "last_sign_in_date_time", None),
+            ]
+            last_sign_in = max((d for d in candidates if d is not None), default=None)
 
         if last_sign_in is None or last_sign_in < cutoff:
             days_inactive = None
