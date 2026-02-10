@@ -71,7 +71,6 @@ uv run entra-spotter --list-checks
 | `shadow-admins-app-owners` | Identifies users who own service principals with privileged roles or sensitive Graph permissions |
 | `shadow-admins-group-owners` | Identifies users who own role-assignable groups with privileged roles |
 | `dynamic-group-hijack` | Detects dynamic groups with privileged roles using mutable membership rule attributes |
-| `unused-apps-cleanup` | Identifies privileged service principals inactive for over 180 days |
 | `auth-methods-number-matching` | Verifies number matching is enforced in Microsoft Authenticator |
 | `break-glass-exclusion` | Verifies emergency access accounts are excluded from all CA policies |
 
@@ -84,7 +83,6 @@ The service principal needs these MS Graph application permissions:
 - `Application.Read.All`
 - `User.Read.All` - for resolving reviewer display names
 - `Group.Read.All` - for resolving reviewer display names and group ownership
-- `AuditLog.Read.All` - for service principal sign-in activity (beta reports API)
 
 ## Development
 

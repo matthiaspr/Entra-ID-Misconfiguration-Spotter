@@ -3,7 +3,7 @@
 from msgraph import GraphServiceClient
 
 from entra_spotter.checks import CheckResult
-from entra_spotter.checks._ca_helpers import get_policy_exclusions, has_any_exclusions
+from entra_spotter.checks._shared import get_policy_exclusions, has_any_exclusions
 
 
 def _is_device_code_blocking_policy(policy: object) -> bool:

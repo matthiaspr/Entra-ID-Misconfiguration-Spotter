@@ -3,7 +3,7 @@
 from msgraph import GraphServiceClient
 
 from entra_spotter.checks import CheckResult
-from entra_spotter.checks._ca_helpers import (
+from entra_spotter.checks._shared import (
     PRIVILEGED_ROLES,
     get_policy_exclusions,
     has_any_exclusions,

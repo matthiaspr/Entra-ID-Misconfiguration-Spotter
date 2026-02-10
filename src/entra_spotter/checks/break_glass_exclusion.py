@@ -3,7 +3,7 @@
 from msgraph import GraphServiceClient
 
 from entra_spotter.checks import CheckResult
-from entra_spotter.checks._ca_helpers import get_policy_exclusions
+from entra_spotter.checks._shared import get_policy_exclusions
 
 
 async def check_break_glass_exclusion(client: GraphServiceClient) -> CheckResult:

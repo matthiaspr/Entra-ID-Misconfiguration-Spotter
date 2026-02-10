@@ -6,15 +6,7 @@ from msgraph.generated.role_management.directory.role_assignments.role_assignmen
 )
 
 from entra_spotter.checks import CheckResult
-
-# Role definition IDs for privileged roles (same as template IDs)
-# https://learn.microsoft.com/en-us/entra/identity/role-based-access-control/permissions-reference
-PRIVILEGED_ROLE_DEFINITIONS = {
-    "62e90394-69f5-4237-9190-012177145e10": "Global Administrator",
-    "e8611ab8-c189-46e8-94e1-60213ab1f814": "Privileged Role Administrator",
-    "9b895d92-2cd3-44c7-9d02-a6ac2d5ea5c3": "Application Administrator",
-    "158c047a-c907-4556-b7ef-446551a6b5f7": "Cloud Application Administrator",
-}
+from entra_spotter.checks._shared import PRIVILEGED_ROLES
 
 
 async def check_sp_admin_roles(client: GraphServiceClient) -> CheckResult:
@@ -33,19 +25,26 @@ async def check_sp_admin_roles(client: GraphServiceClient) -> CheckResult:
     request_config = RoleAssignmentsRequestBuilder.RoleAssignmentsRequestBuilderGetRequestConfiguration(
         query_parameters=query_params,
     )
-    assignments_response = await client.role_management.directory.role_assignments.get(
+    response = await client.role_management.directory.role_assignments.get(
         request_configuration=request_config
     )
-    assignments = assignments_response.value or []
+    assignments = []
+    while response:
+        assignments.extend(response.value or [])
+        if response.odata_next_link:
+            response = await client.role_management.directory.role_assignments.with_url(response.odata_next_link).get()
+        else:
+            break
 
     findings: list[dict] = []
 
     for assignment in assignments:
-        # Check if this is a privileged role
-        if assignment.role_definition_id not in PRIVILEGED_ROLE_DEFINITIONS:
+        # Check if this is a privileged role (lowercase for case-insensitive comparison)
+        role_id = (assignment.role_definition_id or "").lower()
+        if role_id not in PRIVILEGED_ROLES:
             continue
 
-        role_name = PRIVILEGED_ROLE_DEFINITIONS[assignment.role_definition_id]
+        role_name = PRIVILEGED_ROLES[role_id]
         principal = assignment.principal
 
         if principal is None:

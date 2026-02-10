@@ -27,7 +27,7 @@ uv run pytest
 - `src/entra_spotter/cli.py` - CLI entry point, config, runner, output formatting
 - `src/entra_spotter/graph.py` - MS Graph authentication and client setup
 - `src/entra_spotter/checks/__init__.py` - CheckResult, Check dataclass, ALL_CHECKS registry
-- `src/entra_spotter/checks/_ca_helpers.py` - Shared helpers for Conditional Access checks (exclusion extraction, privileged role definitions)
+- `src/entra_spotter/checks/_shared.py` - Shared helpers and constants (privileged role definitions, sensitive app roles, CA policy exclusion extraction)
 - `src/entra_spotter/checks/*.py` - Individual check implementations
 
 ### Check Pattern
@@ -79,7 +79,6 @@ Checks are explicitly registered in `checks/__init__.py` (no auto-discovery).
 | `shadow-admins-app-owners` | `shadow_admins_app_owners.py` | `GET /roleManagement/directory/roleAssignments?$expand=principal`, `GET /servicePrincipals?$expand=appRoleAssignments`, `GET /servicePrincipals/{id}/owners` |
 | `shadow-admins-group-owners` | `shadow_admins_group_owners.py` | `GET /roleManagement/directory/roleAssignments?$expand=principal`, `GET /groups/{id}/owners` |
 | `dynamic-group-hijack` | `dynamic_group_hijack.py` | `GET /roleManagement/directory/roleAssignments?$expand=principal`, `GET /groups/{id}` |
-| `unused-apps-cleanup` | `unused_apps_cleanup.py` | `GET /roleManagement/directory/roleAssignments?$expand=principal`, `GET /servicePrincipals?$expand=appRoleAssignments`, `GET /servicePrincipals/{id}`, `GET /beta/reports/servicePrincipalSignInActivities?$filter=appId eq '{id}'` |
 | `auth-methods-number-matching` | `auth_methods_number_matching.py` | `GET /policies/authenticationMethodsPolicy/authenticationMethodConfigurations/MicrosoftAuthenticator` |
 | `break-glass-exclusion` | `break_glass_exclusion.py` | `GET /identity/conditionalAccess/policies` |
 
@@ -92,7 +91,7 @@ Checks are explicitly registered in `checks/__init__.py` (no auto-discovery).
 5. **Explicit registration** - Checks are added to `ALL_CHECKS` list manually (no magic)
 6. **Function-based checks** - Simple functions, not classes with inheritance
 7. **Unified RBAC API** - Use `/roleManagement/directory/roleAssignments` instead of legacy `/directoryRoles` for role membership checks
-8. **Shared CA helpers** - Conditional Access checks share `get_policy_exclusions()`, `has_any_exclusions()`, and `PRIVILEGED_ROLES` via `_ca_helpers.py` to avoid duplication across check files
+8. **Shared helpers** - Checks share `get_policy_exclusions()`, `has_any_exclusions()`, `PRIVILEGED_ROLES`, and `SENSITIVE_APP_ROLES` via `_shared.py` to avoid duplication across check files
 
 ## Environment Variables
 
@@ -109,7 +108,6 @@ export AZURE_CLIENT_SECRET="your-client-secret"
 - `Application.Read.All` (Application)
 - `User.Read.All` (Application) - for resolving reviewer display names
 - `Group.Read.All` (Application) - for resolving reviewer display names and group ownership
-- `AuditLog.Read.All` (Application) - for service principal sign-in activity (beta reports API)
 
 All are read-only. The tool never modifies any Entra ID configuration.
 
@@ -137,7 +135,7 @@ All are read-only. The tool never modifies any Entra ID configuration.
 2. Register in `checks/__init__.py` by adding to `ALL_CHECKS` list
 3. Add tests in `tests/test_checks.py`
 4. Update `SPEC.md` if new MS Graph permissions are required
-5. For Conditional Access checks, reuse helpers from `checks/_ca_helpers.py` (exclusion extraction, privileged role definitions)
+5. For shared constants and helpers, reuse from `checks/_shared.py` (privileged role definitions, sensitive app roles, CA policy exclusion extraction)
 
 ## Code Style
 

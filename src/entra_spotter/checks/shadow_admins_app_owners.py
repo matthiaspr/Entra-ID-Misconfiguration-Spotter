@@ -12,14 +12,7 @@ from msgraph.generated.service_principals.service_principals_request_builder imp
 )
 
 from entra_spotter.checks import CheckResult
-from entra_spotter.checks._ca_helpers import PRIVILEGED_ROLES
-
-# Sensitive MS Graph app role IDs (same as sp_graph_roles check)
-SENSITIVE_APP_ROLES: dict[str, str] = {
-    "9e3f62cf-ca93-4989-b6ce-bf83c28f9fe8": "RoleManagement.ReadWrite.Directory",
-    "06b708a9-e830-4db3-a914-8e69da51d44f": "AppRoleAssignment.ReadWrite.All",
-    "50483e42-d915-4231-9639-7fdb7fd190e5": "UserAuthenticationMethod.ReadWrite.All",
-}
+from entra_spotter.checks._shared import PRIVILEGED_ROLES, SENSITIVE_APP_ROLES
 
 
 async def check_shadow_admins_app_owners(client: GraphServiceClient) -> CheckResult:
@@ -39,10 +32,16 @@ async def check_shadow_admins_app_owners(client: GraphServiceClient) -> CheckRes
     request_config = RoleAssignmentsRequestBuilder.RoleAssignmentsRequestBuilderGetRequestConfiguration(
         query_parameters=query_params,
     )
-    assignments_response = await client.role_management.directory.role_assignments.get(
+    response = await client.role_management.directory.role_assignments.get(
         request_configuration=request_config
     )
-    assignments = assignments_response.value or []
+    assignments = []
+    while response:
+        assignments.extend(response.value or [])
+        if response.odata_next_link:
+            response = await client.role_management.directory.role_assignments.with_url(response.odata_next_link).get()
+        else:
+            break
 
     # Collect service principal IDs that hold privileged roles
     privileged_sp_ids: dict[str, list[str]] = {}  # sp_id -> [role_names]

@@ -8,7 +8,7 @@ from msgraph.generated.role_management.directory.role_assignments.role_assignmen
 )
 
 from entra_spotter.checks import CheckResult
-from entra_spotter.checks._ca_helpers import PRIVILEGED_ROLES
+from entra_spotter.checks._shared import PRIVILEGED_ROLES
 
 # User attributes that are commonly mutable by helpdesk or HR systems
 MUTABLE_ATTRIBUTES = [
@@ -58,10 +58,16 @@ async def check_dynamic_group_hijack(client: GraphServiceClient) -> CheckResult:
     request_config = RoleAssignmentsRequestBuilder.RoleAssignmentsRequestBuilderGetRequestConfiguration(
         query_parameters=query_params,
     )
-    assignments_response = await client.role_management.directory.role_assignments.get(
+    response = await client.role_management.directory.role_assignments.get(
         request_configuration=request_config
     )
-    assignments = assignments_response.value or []
+    assignments = []
+    while response:
+        assignments.extend(response.value or [])
+        if response.odata_next_link:
+            response = await client.role_management.directory.role_assignments.with_url(response.odata_next_link).get()
+        else:
+            break
 
     # Collect group IDs that hold privileged roles
     privileged_group_ids: dict[str, list[str]] = {}  # group_id -> [role_names]
