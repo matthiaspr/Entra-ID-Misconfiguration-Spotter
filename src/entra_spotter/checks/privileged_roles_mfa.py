@@ -7,6 +7,8 @@ from entra_spotter.checks._shared import (
     PRIVILEGED_ROLES,
     collect_ca_policies,
     has_any_exclusions,
+    is_strict_mfa,
+    targets_all_apps,
 )
 
 
@@ -16,26 +18,14 @@ def _is_mfa_policy_for_roles(policy: object) -> tuple[bool, set[str]]:
     Returns:
         Tuple of (is_valid_mfa_policy, set_of_covered_role_ids)
     """
-    # Must have grant controls with MFA
-    grant_controls = getattr(policy, "grant_controls", None)
-    if not grant_controls:
-        return False, set()
-
-    built_in_controls = getattr(grant_controls, "built_in_controls", None) or []
-    if "mfa" not in built_in_controls:
+    if not is_strict_mfa(getattr(policy, "grant_controls", None)):
         return False, set()
 
     conditions = getattr(policy, "conditions", None)
     if not conditions:
         return False, set()
 
-    # Must target all applications
-    applications = getattr(conditions, "applications", None)
-    if not applications:
-        return False, set()
-
-    include_applications = getattr(applications, "include_applications", None) or []
-    if "All" not in include_applications:
+    if not targets_all_apps(conditions):
         return False, set()
 
     # Must target specific roles
@@ -63,8 +53,8 @@ async def check_privileged_roles_mfa(client: GraphServiceClient) -> CheckResult:
     All 14 privileged roles must be covered by one or more policies.
 
     Pass: All privileged roles covered by MFA policies with no exclusions
-    Warning: All roles covered but policies have exclusions OR only report-only
-    Fail: One or more privileged roles not covered by any MFA policy
+    Warning: All roles covered but policies have exclusions
+    Fail: One or more privileged roles not covered OR only report-only policies exist
     """
     response = await client.identity.conditional_access.policies.get()
     policies = response.value or []
@@ -112,7 +102,7 @@ async def check_privileged_roles_mfa(client: GraphServiceClient) -> CheckResult:
             details["roles_not_covered"] = missing_names if missing_names else []
             return CheckResult(
                 check_id="privileged-roles-mfa",
-                status="warning",
+                status="fail",
                 message=(
                     f"MFA policies for privileged roles exist but are in report-only mode. "
                     f"{len(report_only_covered_roles)}/{len(PRIVILEGED_ROLES)} roles covered."

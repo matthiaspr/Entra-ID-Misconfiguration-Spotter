@@ -96,3 +96,68 @@ def collect_ca_policies(
             report_only_policies.append(policy_info)
 
     return enforced_policies, report_only_policies
+
+
+def targets_all_apps(conditions: object | None) -> bool:
+    """Return True if CA policy targets all applications."""
+    if not conditions:
+        return False
+
+    applications = getattr(conditions, "applications", None)
+    if not applications:
+        return False
+
+    include_applications = getattr(applications, "include_applications", None) or []
+    return "All" in include_applications
+
+
+def targets_all_users(conditions: object | None) -> bool:
+    """Return True if CA policy targets all users."""
+    if not conditions:
+        return False
+
+    users = getattr(conditions, "users", None)
+    if not users:
+        return False
+
+    include_users = getattr(users, "include_users", None) or []
+    return "All" in include_users
+
+
+def is_strict_mfa(grant_controls: object | None) -> bool:
+    """Return True if MFA is strictly required without OR bypass."""
+    if not grant_controls:
+        return False
+
+    built_in_controls = getattr(grant_controls, "built_in_controls", None) or []
+    if "mfa" not in built_in_controls:
+        return False
+
+    operator = getattr(grant_controls, "operator", None)
+    if operator == "AND":
+        return True
+
+    return built_in_controls == ["mfa"]
+
+
+def is_strict_auth_strength(grant_controls: object | None, strength_id: str) -> bool:
+    """Return True if required authentication strength is strictly enforced."""
+    if not grant_controls:
+        return False
+
+    auth_strength = getattr(grant_controls, "authentication_strength", None)
+    if not auth_strength:
+        return False
+
+    current_id = getattr(auth_strength, "id", None)
+    if current_id is not None:
+        current_id = str(current_id)
+    if current_id != strength_id:
+        return False
+
+    built_in_controls = getattr(grant_controls, "built_in_controls", None) or []
+    operator = getattr(grant_controls, "operator", None)
+    if operator == "AND":
+        return True
+
+    return not built_in_controls

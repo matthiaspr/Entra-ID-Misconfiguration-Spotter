@@ -3,7 +3,12 @@
 from msgraph import GraphServiceClient
 
 from entra_spotter.checks import CheckResult
-from entra_spotter.checks._shared import collect_ca_policies, has_any_exclusions
+from entra_spotter.checks._shared import (
+    collect_ca_policies,
+    has_any_exclusions,
+    targets_all_apps,
+    targets_all_users,
+)
 
 # Legacy authentication client app types that should be blocked
 LEGACY_CLIENT_TYPES = {"exchangeActiveSync", "other"}
@@ -29,13 +34,10 @@ def _is_legacy_auth_blocking_policy(policy: object) -> bool:
     if not LEGACY_CLIENT_TYPES.issubset(client_app_types):
         return False
 
-    # Must target all applications
-    applications = getattr(conditions, "applications", None)
-    if not applications:
+    if not targets_all_users(conditions):
         return False
 
-    include_applications = getattr(applications, "include_applications", None) or []
-    if "All" not in include_applications:
+    if not targets_all_apps(conditions):
         return False
 
     return True
@@ -50,8 +52,8 @@ async def check_legacy_auth_blocked(client: GraphServiceClient) -> CheckResult:
     - Apply to all applications
 
     Pass: Enforced policy exists with no exclusions
-    Warning: Policy exists but has exclusions OR only report-only policies exist
-    Fail: No policy blocks legacy authentication
+    Warning: Policy exists but has exclusions
+    Fail: No policy blocks legacy authentication OR only report-only policies exist
     """
     response = await client.identity.conditional_access.policies.get()
     policies = response.value or []
@@ -79,7 +81,7 @@ async def check_legacy_auth_blocked(client: GraphServiceClient) -> CheckResult:
     if not enforced_policies:
         return CheckResult(
             check_id="legacy-auth-blocked",
-            status="warning",
+            status="fail",
             message=(
                 f"{len(report_only_policies)} policy(ies) block legacy auth but are "
                 "in report-only mode (not enforced)."

@@ -7,10 +7,13 @@ from entra_spotter.checks._shared import (
     PRIVILEGED_ROLES,
     collect_ca_policies,
     has_any_exclusions,
+    is_strict_auth_strength,
+    targets_all_apps,
 )
 
 # Built-in authentication strength policy ID for phishing-resistant MFA.
 # See: https://learn.microsoft.com/en-us/graph/api/resources/authenticationstrengths-overview
+# Note: Custom strengths are not recognized by this check.
 PHISHING_RESISTANT_STRENGTH_ID = "00000000-0000-0000-0000-000000000004"
 
 
@@ -20,32 +23,17 @@ def _is_phishing_resistant_mfa_policy_for_roles(policy: object) -> tuple[bool, s
     Returns:
         Tuple of (is_valid_policy, set_of_covered_role_ids)
     """
-    # Must have grant controls with authentication strength
-    grant_controls = getattr(policy, "grant_controls", None)
-    if not grant_controls:
-        return False, set()
-
-    auth_strength = getattr(grant_controls, "authentication_strength", None)
-    if not auth_strength:
-        return False, set()
-
-    strength_id = getattr(auth_strength, "id", None)
-    if strength_id is not None:
-        strength_id = str(strength_id)
-    if strength_id != PHISHING_RESISTANT_STRENGTH_ID:
+    if not is_strict_auth_strength(
+        getattr(policy, "grant_controls", None),
+        PHISHING_RESISTANT_STRENGTH_ID,
+    ):
         return False, set()
 
     conditions = getattr(policy, "conditions", None)
     if not conditions:
         return False, set()
 
-    # Must target all applications
-    applications = getattr(conditions, "applications", None)
-    if not applications:
-        return False, set()
-
-    include_applications = getattr(applications, "include_applications", None) or []
-    if "All" not in include_applications:
+    if not targets_all_apps(conditions):
         return False, set()
 
     # Must target specific roles
@@ -75,8 +63,8 @@ async def check_privileged_roles_phishing_resistant_mfa(
     All 14 privileged roles must be covered by one or more policies.
 
     Pass: All privileged roles covered with no exclusions
-    Warning: All roles covered but policies have exclusions OR only report-only
-    Fail: One or more privileged roles not covered
+    Warning: All roles covered but policies have exclusions
+    Fail: One or more privileged roles not covered OR only report-only policies exist
     """
     response = await client.identity.conditional_access.policies.get()
     policies = response.value or []
@@ -122,7 +110,7 @@ async def check_privileged_roles_phishing_resistant_mfa(
             details["roles_not_covered"] = missing_names if missing_names else []
             return CheckResult(
                 check_id="privileged-roles-phishing-resistant-mfa",
-                status="warning",
+                status="fail",
                 message=(
                     "Phishing-resistant MFA policies for privileged roles exist but "
                     "are in report-only mode. "

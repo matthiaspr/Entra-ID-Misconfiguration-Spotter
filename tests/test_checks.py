@@ -701,8 +701,8 @@ class TestLegacyAuthBlocked:
 
         assert result.status == "fail"
 
-    async def test_warning_when_only_report_only_policy_exists(self, mock_graph_client):
-        """Should warn when only report-only policies exist."""
+    async def test_fail_when_only_report_only_policy_exists(self, mock_graph_client):
+        """Should fail when only report-only policies exist."""
         policy = self._create_blocking_policy(
             state="enabledForReportingButNotEnforced"
         )
@@ -712,7 +712,7 @@ class TestLegacyAuthBlocked:
 
         result = await check_legacy_auth_blocked(mock_graph_client)
 
-        assert result.status == "warning"
+        assert result.status == "fail"
         assert "report-only" in result.message
         assert len(result.details["report_only_policies"]) == 1
         assert len(result.details["enforced_policies"]) == 0
@@ -794,6 +794,50 @@ class TestLegacyAuthBlocked:
                 applications=MockCAApplications(
                     include_applications=["specific-app-id"]  # Not "All"
                 ),
+            ),
+            grant_controls=MockCAGrantControls(built_in_controls=["block"]),
+        )
+        mock_graph_client.identity.conditional_access.policies.get.return_value = (
+            MockCAPoliciesResponse([policy])
+        )
+
+        result = await check_legacy_auth_blocked(mock_graph_client)
+
+        assert result.status == "fail"
+
+    async def test_fail_when_policy_not_targeting_all_users(self, mock_graph_client):
+        """Should fail when policy doesn't target all users."""
+        policy = MockConditionalAccessPolicy(
+            id="policy-1",
+            display_name="Limited Users",
+            state="enabled",
+            conditions=MockCAConditions(
+                authentication_flows=MockCAAuthenticationFlows(
+                    transfer_methods=["deviceCodeFlow"]
+                ),
+                users=MockCAUsers(include_users=["user-id-1"]),
+                applications=MockCAApplications(include_applications=["All"]),
+            ),
+            grant_controls=MockCAGrantControls(built_in_controls=["block"]),
+        )
+        mock_graph_client.identity.conditional_access.policies.get.return_value = (
+            MockCAPoliciesResponse([policy])
+        )
+
+        result = await check_device_code_blocked(mock_graph_client)
+
+        assert result.status == "fail"
+
+    async def test_fail_when_policy_not_targeting_all_users(self, mock_graph_client):
+        """Should fail when policy doesn't target all users."""
+        policy = MockConditionalAccessPolicy(
+            id="policy-1",
+            display_name="Limited Users",
+            state="enabled",
+            conditions=MockCAConditions(
+                client_app_types=["exchangeActiveSync", "other"],
+                users=MockCAUsers(include_users=["user-id-1"]),
+                applications=MockCAApplications(include_applications=["All"]),
             ),
             grant_controls=MockCAGrantControls(built_in_controls=["block"]),
         )
@@ -913,8 +957,8 @@ class TestDeviceCodeBlocked:
 
         assert result.status == "fail"
 
-    async def test_warning_when_only_report_only_policy_exists(self, mock_graph_client):
-        """Should warn when only report-only policies exist."""
+    async def test_fail_when_only_report_only_policy_exists(self, mock_graph_client):
+        """Should fail when only report-only policies exist."""
         policy = self._create_blocking_policy(
             state="enabledForReportingButNotEnforced"
         )
@@ -924,7 +968,7 @@ class TestDeviceCodeBlocked:
 
         result = await check_device_code_blocked(mock_graph_client)
 
-        assert result.status == "warning"
+        assert result.status == "fail"
         assert "report-only" in result.message
         assert len(result.details["report_only_policies"]) == 1
         assert len(result.details["enforced_policies"]) == 0
@@ -1134,8 +1178,8 @@ class TestPrivilegedRolesMfa:
         assert result.status == "pass"
         assert len(result.details["enforced_policies"]) == 2
 
-    async def test_warning_when_only_report_only_policies(self, mock_graph_client):
-        """Should warn when only report-only policies exist."""
+    async def test_fail_when_only_report_only_policies(self, mock_graph_client):
+        """Should fail when only report-only policies exist."""
         policy = self._create_mfa_policy(state="enabledForReportingButNotEnforced")
         mock_graph_client.identity.conditional_access.policies.get.return_value = (
             MockCAPoliciesResponse([policy])
@@ -1143,7 +1187,7 @@ class TestPrivilegedRolesMfa:
 
         result = await check_privileged_roles_mfa(mock_graph_client)
 
-        assert result.status == "warning"
+        assert result.status == "fail"
         assert "report-only" in result.message
 
     async def test_warning_when_policy_has_exclusions(self, mock_graph_client):
@@ -1191,6 +1235,29 @@ class TestPrivilegedRolesMfa:
                 applications=MockCAApplications(include_applications=["All"]),
             ),
             grant_controls=MockCAGrantControls(built_in_controls=["compliantDevice"]),
+        )
+        mock_graph_client.identity.conditional_access.policies.get.return_value = (
+            MockCAPoliciesResponse([policy])
+        )
+
+        result = await check_privileged_roles_mfa(mock_graph_client)
+
+        assert result.status == "fail"
+
+    async def test_fail_when_policy_allows_or_bypass(self, mock_graph_client):
+        """Should fail when MFA is combined with other controls using OR."""
+        policy = MockConditionalAccessPolicy(
+            id="policy-1",
+            display_name="MFA Or Compliance",
+            state="enabled",
+            conditions=MockCAConditions(
+                users=MockCAUsers(include_roles=self.ALL_ROLE_IDS),
+                applications=MockCAApplications(include_applications=["All"]),
+            ),
+            grant_controls=MockCAGrantControls(
+                built_in_controls=["mfa", "compliantDevice"],
+                operator="OR",
+            ),
         )
         mock_graph_client.identity.conditional_access.policies.get.return_value = (
             MockCAPoliciesResponse([policy])
@@ -1737,8 +1804,8 @@ class TestPrivilegedRolesPhishingResistantMfa:
         assert result.status == "pass"
         assert len(result.details["enforced_policies"]) == 2
 
-    async def test_warning_when_only_report_only_policies(self, mock_graph_client):
-        """Should warn when only report-only policies exist."""
+    async def test_fail_when_only_report_only_policies(self, mock_graph_client):
+        """Should fail when only report-only policies exist."""
         policy = self._create_phishing_resistant_policy(
             state="enabledForReportingButNotEnforced",
         )
@@ -1748,7 +1815,7 @@ class TestPrivilegedRolesPhishingResistantMfa:
 
         result = await check_privileged_roles_phishing_resistant_mfa(mock_graph_client)
 
-        assert result.status == "warning"
+        assert result.status == "fail"
         assert "report-only" in result.message
 
     async def test_warning_when_policy_has_exclusions(self, mock_graph_client):
@@ -1802,6 +1869,32 @@ class TestPrivilegedRolesPhishingResistantMfa:
                 applications=MockCAApplications(include_applications=["All"]),
             ),
             grant_controls=MockCAGrantControls(built_in_controls=["mfa"]),
+        )
+        mock_graph_client.identity.conditional_access.policies.get.return_value = (
+            MockCAPoliciesResponse([policy])
+        )
+
+        result = await check_privileged_roles_phishing_resistant_mfa(mock_graph_client)
+
+        assert result.status == "fail"
+
+    async def test_fail_when_policy_allows_or_bypass(self, mock_graph_client):
+        """Should fail when phishing-resistant strength is combined with OR."""
+        policy = MockConditionalAccessPolicy(
+            id="policy-1",
+            display_name="Strength Or Compliance",
+            state="enabled",
+            conditions=MockCAConditions(
+                users=MockCAUsers(include_roles=self.ALL_ROLE_IDS),
+                applications=MockCAApplications(include_applications=["All"]),
+            ),
+            grant_controls=MockCAGrantControls(
+                authentication_strength=MockCAAuthenticationStrength(
+                    id=self.PHISHING_RESISTANT_ID,
+                ),
+                built_in_controls=["compliantDevice"],
+                operator="OR",
+            ),
         )
         mock_graph_client.identity.conditional_access.policies.get.return_value = (
             MockCAPoliciesResponse([policy])
