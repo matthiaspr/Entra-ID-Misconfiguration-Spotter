@@ -10,6 +10,7 @@ from msgraph.generated.applications.applications_request_builder import (
 from msgraph.generated.service_principals.service_principals_request_builder import (
     ServicePrincipalsRequestBuilder,
 )
+from kiota_abstractions.base_request_configuration import RequestConfiguration
 
 from entra_spotter.checks import CheckResult
 from entra_spotter.checks._shared import PRIVILEGED_ROLES, SENSITIVE_APP_ROLES
@@ -30,9 +31,7 @@ async def check_shadow_admins_app_owners(client: GraphServiceClient) -> CheckRes
     query_params = RoleAssignmentsRequestBuilder.RoleAssignmentsRequestBuilderGetQueryParameters(
         expand=["principal"],
     )
-    request_config = RoleAssignmentsRequestBuilder.RoleAssignmentsRequestBuilderGetRequestConfiguration(
-        query_parameters=query_params,
-    )
+    request_config = RequestConfiguration(query_parameters=query_params)
     try:
         response = await client.role_management.directory.role_assignments.get(
             request_configuration=request_config
@@ -69,9 +68,7 @@ async def check_shadow_admins_app_owners(client: GraphServiceClient) -> CheckRes
     sp_query = ServicePrincipalsRequestBuilder.ServicePrincipalsRequestBuilderGetQueryParameters(
         expand=["appRoleAssignments"],
     )
-    sp_config = ServicePrincipalsRequestBuilder.ServicePrincipalsRequestBuilderGetRequestConfiguration(
-        query_parameters=sp_query,
-    )
+    sp_config = RequestConfiguration(query_parameters=sp_query)
     try:
         sp_response = await client.service_principals.get(request_configuration=sp_config)
     except Exception as e:
@@ -136,9 +133,7 @@ async def check_shadow_admins_app_owners(client: GraphServiceClient) -> CheckRes
                 app_query = ApplicationsRequestBuilder.ApplicationsRequestBuilderGetQueryParameters(
                     filter=f"appId eq '{app_id}'",
                 )
-                app_config = ApplicationsRequestBuilder.ApplicationsRequestBuilderGetRequestConfiguration(
-                    query_parameters=app_query,
-                )
+                app_config = RequestConfiguration(query_parameters=app_query)
                 apps_response = await client.applications.get(
                     request_configuration=app_config
                 )

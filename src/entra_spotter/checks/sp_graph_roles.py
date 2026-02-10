@@ -4,6 +4,7 @@ from msgraph import GraphServiceClient
 from msgraph.generated.service_principals.service_principals_request_builder import (
     ServicePrincipalsRequestBuilder,
 )
+from kiota_abstractions.base_request_configuration import RequestConfiguration
 
 from entra_spotter.checks import CheckResult
 from entra_spotter.checks._shared import SENSITIVE_APP_ROLES
@@ -24,9 +25,7 @@ async def check_sp_graph_roles(client: GraphServiceClient) -> CheckResult:
     query_params = ServicePrincipalsRequestBuilder.ServicePrincipalsRequestBuilderGetQueryParameters(
         expand=["appRoleAssignments"],
     )
-    request_config = ServicePrincipalsRequestBuilder.ServicePrincipalsRequestBuilderGetRequestConfiguration(
-        query_parameters=query_params,
-    )
+    request_config = RequestConfiguration(query_parameters=query_params)
 
     findings: list[dict] = []
 

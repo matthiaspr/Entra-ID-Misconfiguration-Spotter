@@ -4,6 +4,7 @@ from msgraph import GraphServiceClient
 from msgraph.generated.role_management.directory.role_assignments.role_assignments_request_builder import (
     RoleAssignmentsRequestBuilder,
 )
+from kiota_abstractions.base_request_configuration import RequestConfiguration
 
 from entra_spotter.checks import CheckResult
 
@@ -31,9 +32,7 @@ async def check_global_admin_count(client: GraphServiceClient) -> CheckResult:
         filter=f"roleDefinitionId eq '{GLOBAL_ADMIN_ROLE_ID}'",
         expand=["principal"],
     )
-    config = RoleAssignmentsRequestBuilder.RoleAssignmentsRequestBuilderGetRequestConfiguration(
-        query_parameters=query_params,
-    )
+    config = RequestConfiguration(query_parameters=query_params)
     response = await client.role_management.directory.role_assignments.get(config)
     assignments = []
     while response:
