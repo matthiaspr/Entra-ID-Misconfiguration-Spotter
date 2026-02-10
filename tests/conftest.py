@@ -40,6 +40,9 @@ def mock_graph_client():
     client.policies.authentication_methods_policy.authentication_method_configurations.by_authentication_method_configuration_id = MagicMock(
         return_value=MagicMock(get=AsyncMock())
     )
+    # For beta API calls via request_adapter (e.g., SP sign-in activity)
+    client.request_adapter = MagicMock()
+    client.request_adapter.send_primitive_async = AsyncMock(return_value=None)
     return client
 
 
@@ -282,16 +285,11 @@ class MockDynamicGroup:
         self.membership_rule = membership_rule
 
 
-class MockSignInActivity:
-    def __init__(self, last_sign_in_date_time=None):
-        self.last_sign_in_date_time = last_sign_in_date_time
-
-
 class MockServicePrincipalDetail:
-    def __init__(self, id: str, display_name: str, sign_in_activity=None):
+    def __init__(self, id: str, display_name: str, app_id: str | None = None):
         self.id = id
         self.display_name = display_name
-        self.sign_in_activity = sign_in_activity
+        self.app_id = app_id
 
 
 class MockNumberMatchingState:

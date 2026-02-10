@@ -79,7 +79,7 @@ Checks are explicitly registered in `checks/__init__.py` (no auto-discovery).
 | `shadow-admins-app-owners` | `shadow_admins_app_owners.py` | `GET /roleManagement/directory/roleAssignments?$expand=principal`, `GET /servicePrincipals?$expand=appRoleAssignments`, `GET /servicePrincipals/{id}/owners` |
 | `shadow-admins-group-owners` | `shadow_admins_group_owners.py` | `GET /roleManagement/directory/roleAssignments?$expand=principal`, `GET /groups/{id}/owners` |
 | `dynamic-group-hijack` | `dynamic_group_hijack.py` | `GET /roleManagement/directory/roleAssignments?$expand=principal`, `GET /groups/{id}` |
-| `unused-apps-cleanup` | `unused_apps_cleanup.py` | `GET /roleManagement/directory/roleAssignments?$expand=principal`, `GET /servicePrincipals?$expand=appRoleAssignments`, `GET /servicePrincipals/{id}` |
+| `unused-apps-cleanup` | `unused_apps_cleanup.py` | `GET /roleManagement/directory/roleAssignments?$expand=principal`, `GET /servicePrincipals?$expand=appRoleAssignments`, `GET /servicePrincipals/{id}`, `GET /beta/reports/servicePrincipalSignInActivities?$filter=appId eq '{id}'` |
 | `auth-methods-number-matching` | `auth_methods_number_matching.py` | `GET /policies/authenticationMethodsPolicy/authenticationMethodConfigurations/MicrosoftAuthenticator` |
 | `break-glass-exclusion` | `break_glass_exclusion.py` | `GET /identity/conditionalAccess/policies` |
 
@@ -109,6 +109,7 @@ export AZURE_CLIENT_SECRET="your-client-secret"
 - `Application.Read.All` (Application)
 - `User.Read.All` (Application) - for resolving reviewer display names
 - `Group.Read.All` (Application) - for resolving reviewer display names and group ownership
+- `AuditLog.Read.All` (Application) - for service principal sign-in activity (beta reports API)
 
 All are read-only. The tool never modifies any Entra ID configuration.
 

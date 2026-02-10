@@ -51,7 +51,6 @@ from conftest import (
     MockCAPoliciesResponse,
     MockOwnersResponse,
     MockDynamicGroup,
-    MockSignInActivity,
     MockServicePrincipalDetail,
     MockNumberMatchingState,
     MockIncludeTarget,
@@ -2158,9 +2157,16 @@ class TestUnusedAppsCleanup:
             MockServicePrincipalDetail(
                 id="sp-1",
                 display_name="Active App",
-                sign_in_activity=MockSignInActivity(last_sign_in_date_time=recent_date),
+                app_id="app-id-1",
             )
         )
+        # Mock beta reports API response
+        import json
+        mock_graph_client.request_adapter.send_primitive_async.return_value = json.dumps({
+            "value": [{"lastSignInActivity": {
+                "lastSuccessfulSignInDateTime": recent_date.isoformat(),
+            }}]
+        }).encode()
 
         result = await check_unused_apps_cleanup(mock_graph_client)
 
@@ -2181,9 +2187,15 @@ class TestUnusedAppsCleanup:
             MockServicePrincipalDetail(
                 id="sp-1",
                 display_name="Stale App",
-                sign_in_activity=MockSignInActivity(last_sign_in_date_time=old_date),
+                app_id="app-id-1",
             )
         )
+        import json
+        mock_graph_client.request_adapter.send_primitive_async.return_value = json.dumps({
+            "value": [{"lastSignInActivity": {
+                "lastSuccessfulSignInDateTime": old_date.isoformat(),
+            }}]
+        }).encode()
 
         result = await check_unused_apps_cleanup(mock_graph_client)
 
@@ -2206,9 +2218,11 @@ class TestUnusedAppsCleanup:
             MockServicePrincipalDetail(
                 id="sp-1",
                 display_name="Never Used App",
-                sign_in_activity=None,
+                app_id="app-id-1",
             )
         )
+        # Beta API returns no sign-in activity
+        mock_graph_client.request_adapter.send_primitive_async.return_value = None
 
         result = await check_unused_apps_cleanup(mock_graph_client)
 
