@@ -71,5 +71,10 @@ async def check_sp_graph_roles(client: GraphServiceClient) -> CheckResult:
         status="warning",
         message=f"{len(findings)} service principal(s) with sensitive MS Graph app roles.",
         recommendation="Review if these service principals require these powerful permissions.",
-        details={"service_principals": findings},
+        details={
+            "service_principals": findings,
+            "details_summary": "\n".join(
+                f'- "{sp["display_name"]}" → {sp["app_role"]}' for sp in findings
+            ),
+        },
     )

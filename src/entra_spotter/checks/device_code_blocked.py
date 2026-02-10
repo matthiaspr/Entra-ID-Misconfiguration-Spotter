@@ -3,7 +3,7 @@
 from msgraph import GraphServiceClient
 
 from entra_spotter.checks import CheckResult
-from entra_spotter.checks._shared import get_policy_exclusions, has_any_exclusions
+from entra_spotter.checks._shared import collect_ca_policies, has_any_exclusions
 
 
 def _is_device_code_blocking_policy(policy: object) -> bool:
@@ -57,25 +57,12 @@ async def check_device_code_blocked(client: GraphServiceClient) -> CheckResult:
     response = await client.identity.conditional_access.policies.get()
     policies = response.value or []
 
-    enforced_policies: list[dict] = []
-    report_only_policies: list[dict] = []
-
-    for policy in policies:
+    def _policy_info(policy: object) -> dict | None:
         if not _is_device_code_blocking_policy(policy):
-            continue
+            return None
+        return {}
 
-        state = getattr(policy, "state", None)
-        policy_info = {
-            "name": getattr(policy, "display_name", "Unknown"),
-            "id": getattr(policy, "id", None),
-            "state": state,
-            "exclusions": get_policy_exclusions(policy),
-        }
-
-        if state == "enabled":
-            enforced_policies.append(policy_info)
-        elif state == "enabledForReportingButNotEnforced":
-            report_only_policies.append(policy_info)
+    enforced_policies, report_only_policies = collect_ca_policies(policies, _policy_info)
 
     # No policies found at all
     if not enforced_policies and not report_only_policies:

@@ -1,5 +1,7 @@
 """Shared helpers and constants for security checks."""
 
+from typing import Callable
+
 # Privileged role template IDs that should require MFA / phishing-resistant MFA.
 # https://learn.microsoft.com/en-us/entra/identity/role-based-access-control/permissions-reference
 PRIVILEGED_ROLES: dict[str, str] = {
@@ -60,3 +62,37 @@ def get_policy_exclusions(policy: object) -> dict[str, list]:
 def has_any_exclusions(exclusions: dict[str, list]) -> bool:
     """Check if there are any exclusions."""
     return any(len(v) > 0 for v in exclusions.values())
+
+
+def collect_ca_policies(
+    policies: list[object],
+    evaluator: Callable[[object], dict | None],
+) -> tuple[list[dict], list[dict]]:
+    """Collect matching CA policies partitioned by enforcement state.
+
+    evaluator returns a dict of extra fields to include for matching policies,
+    or None to skip a policy.
+    """
+    enforced_policies: list[dict] = []
+    report_only_policies: list[dict] = []
+
+    for policy in policies:
+        extra = evaluator(policy)
+        if extra is None:
+            continue
+
+        state = getattr(policy, "state", None)
+        policy_info = {
+            "name": getattr(policy, "display_name", "Unknown"),
+            "id": getattr(policy, "id", None),
+            "state": state,
+            "exclusions": get_policy_exclusions(policy),
+        }
+        policy_info.update(extra)
+
+        if state == "enabled":
+            enforced_policies.append(policy_info)
+        elif state == "enabledForReportingButNotEnforced":
+            report_only_policies.append(policy_info)
+
+    return enforced_policies, report_only_policies

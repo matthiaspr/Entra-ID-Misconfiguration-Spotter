@@ -5,7 +5,7 @@ from msgraph import GraphServiceClient
 from entra_spotter.checks import CheckResult
 from entra_spotter.checks._shared import (
     PRIVILEGED_ROLES,
-    get_policy_exclusions,
+    collect_ca_policies,
     has_any_exclusions,
 )
 
@@ -81,35 +81,27 @@ async def check_privileged_roles_phishing_resistant_mfa(
     response = await client.identity.conditional_access.policies.get()
     policies = response.value or []
 
-    # Track which roles are covered by enforced vs report-only policies
-    enforced_covered_roles: set[str] = set()
-    report_only_covered_roles: set[str] = set()
-
-    enforced_policies: list[dict] = []
-    report_only_policies: list[dict] = []
-
-    for policy in policies:
+    def _policy_info(policy: object) -> dict | None:
         is_valid, covered_roles = _is_phishing_resistant_mfa_policy_for_roles(policy)
         if not is_valid or not covered_roles:
-            continue
-
-        state = getattr(policy, "state", None)
-        policy_info = {
-            "name": getattr(policy, "display_name", "Unknown"),
-            "id": getattr(policy, "id", None),
-            "state": state,
+            return None
+        return {
             "covered_roles": [
                 PRIVILEGED_ROLES[r] for r in covered_roles if r in PRIVILEGED_ROLES
             ],
-            "exclusions": get_policy_exclusions(policy),
+            "covered_role_ids": list(covered_roles),
         }
 
-        if state == "enabled":
-            enforced_policies.append(policy_info)
-            enforced_covered_roles.update(covered_roles)
-        elif state == "enabledForReportingButNotEnforced":
-            report_only_policies.append(policy_info)
-            report_only_covered_roles.update(covered_roles)
+    enforced_policies, report_only_policies = collect_ca_policies(policies, _policy_info)
+
+    def _covered_role_ids(policy_list: list[dict]) -> set[str]:
+        covered: set[str] = set()
+        for policy in policy_list:
+            covered.update(policy.get("covered_role_ids", []))
+        return covered
+
+    enforced_covered_roles = _covered_role_ids(enforced_policies)
+    report_only_covered_roles = _covered_role_ids(report_only_policies)
 
     # Determine which roles are missing coverage
     all_privileged_role_ids = set(PRIVILEGED_ROLES.keys())

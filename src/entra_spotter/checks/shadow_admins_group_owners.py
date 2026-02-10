@@ -19,6 +19,7 @@ async def check_shadow_admins_group_owners(client: GraphServiceClient) -> CheckR
     Warning: One or more users own role-assignable groups with privileged roles
     Pass: No users own role-assignable groups with privileged roles
     """
+    partial_errors: list[dict] = []
     # Step 1: Find groups assigned to privileged directory roles
     query_params = RoleAssignmentsRequestBuilder.RoleAssignmentsRequestBuilderGetQueryParameters(
         expand=["principal"],
@@ -26,9 +27,16 @@ async def check_shadow_admins_group_owners(client: GraphServiceClient) -> CheckR
     request_config = RoleAssignmentsRequestBuilder.RoleAssignmentsRequestBuilderGetRequestConfiguration(
         query_parameters=query_params,
     )
-    response = await client.role_management.directory.role_assignments.get(
-        request_configuration=request_config
-    )
+    try:
+        response = await client.role_management.directory.role_assignments.get(
+            request_configuration=request_config
+        )
+    except Exception as e:
+        return CheckResult(
+            check_id="shadow-admins-group-owners",
+            status="error",
+            message=f"Failed to retrieve role assignments: {e}",
+        )
     assignments = []
     while response:
         assignments.extend(response.value or [])
@@ -39,6 +47,7 @@ async def check_shadow_admins_group_owners(client: GraphServiceClient) -> CheckR
 
     # Collect group IDs that hold privileged roles
     privileged_group_ids: dict[str, list[str]] = {}  # group_id -> [role_names]
+    group_names: dict[str, str] = {}
     for assignment in assignments:
         if assignment.role_definition_id not in PRIVILEGED_ROLES:
             continue
@@ -50,6 +59,8 @@ async def check_shadow_admins_group_owners(client: GraphServiceClient) -> CheckR
             group_id = principal.id
             role_name = PRIVILEGED_ROLES[assignment.role_definition_id]
             privileged_group_ids.setdefault(group_id, []).append(role_name)
+            if group_id and getattr(principal, "display_name", None):
+                group_names[group_id] = principal.display_name
 
     if not privileged_group_ids:
         return CheckResult(
@@ -64,7 +75,12 @@ async def check_shadow_admins_group_owners(client: GraphServiceClient) -> CheckR
         try:
             owners_response = await client.groups.by_group_id(group_id).owners.get()
             owners = owners_response.value or []
-        except Exception:
+        except Exception as e:
+            partial_errors.append({
+                "stage": "group_owners",
+                "group_id": group_id,
+                "error": str(e),
+            })
             continue
 
         for owner in owners:
@@ -74,15 +90,33 @@ async def check_shadow_admins_group_owners(client: GraphServiceClient) -> CheckR
                     "user_id": owner.id,
                     "user_display_name": getattr(owner, "display_name", "Unknown"),
                     "group_id": group_id,
+                    "group_display_name": group_names.get(group_id),
                     "roles": roles,
                 })
 
     if not findings:
+        if partial_errors:
+            return CheckResult(
+                check_id="shadow-admins-group-owners",
+                status="warning",
+                message=(
+                    "No shadow admin group owners found, but some ownership lookups failed."
+                ),
+                recommendation="Review API permissions or transient Graph errors.",
+                details={"partial_errors": partial_errors},
+            )
+
         return CheckResult(
             check_id="shadow-admins-group-owners",
             status="pass",
             message="No users own role-assignable groups with privileged roles.",
         )
+
+    details_summary = "\n".join(
+        f'- "{admin.get("group_display_name") or admin.get("group_id", "Unknown")}" '
+        f'owned by "{admin.get("user_display_name", admin.get("user_id", "Unknown"))}"'
+        for admin in findings
+    )
 
     return CheckResult(
         check_id="shadow-admins-group-owners",
@@ -95,5 +129,9 @@ async def check_shadow_admins_group_owners(client: GraphServiceClient) -> CheckR
             "Review group ownership. Owners can add themselves to the group and inherit "
             "its role. Remove unnecessary owners or use PIM for just-in-time access."
         ),
-        details={"shadow_admins": findings},
+        details={
+            "shadow_admins": findings,
+            "details_summary": details_summary,
+            "partial_errors": partial_errors,
+        },
     )

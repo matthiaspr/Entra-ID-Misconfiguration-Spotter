@@ -155,7 +155,12 @@ class TestOutputFormatting:
                             "ownership_source": "both",
                             "privileges": ["Global Administrator"],
                         },
-                    ]},
+                    ],
+                    "details_summary": (
+                        '- "My Privileged App" owned by "jane.doe@contoso.com" (via app registration)\n'
+                        '- "Automation SP" owned by "john.smith@contoso.com" (via both)'
+                    ),
+                    },
                 ),
             ),
         ]
@@ -264,7 +269,7 @@ class TestCLI:
 
         result = runner.invoke(main, [])
 
-        assert result.exit_code != 0
+        assert result.exit_code == 2
         assert "Missing required configuration" in result.output
 
     def test_invalid_check_id_shows_error(self, runner, monkeypatch):
