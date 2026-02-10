@@ -25,6 +25,7 @@ async def check_shadow_admins_app_owners(client: GraphServiceClient) -> CheckRes
     Warning: One or more standard users own privileged apps
     Pass: No standard users own privileged apps
     """
+    partial_errors: list[dict] = []
     # Step 1: Find service principals with privileged directory roles
     query_params = RoleAssignmentsRequestBuilder.RoleAssignmentsRequestBuilderGetQueryParameters(
         expand=["principal"],
@@ -32,9 +33,16 @@ async def check_shadow_admins_app_owners(client: GraphServiceClient) -> CheckRes
     request_config = RoleAssignmentsRequestBuilder.RoleAssignmentsRequestBuilderGetRequestConfiguration(
         query_parameters=query_params,
     )
-    response = await client.role_management.directory.role_assignments.get(
-        request_configuration=request_config
-    )
+    try:
+        response = await client.role_management.directory.role_assignments.get(
+            request_configuration=request_config
+        )
+    except Exception as e:
+        return CheckResult(
+            check_id="shadow-admins-app-owners",
+            status="error",
+            message=f"Failed to retrieve role assignments: {e}",
+        )
     assignments = []
     while response:
         assignments.extend(response.value or [])
@@ -64,7 +72,14 @@ async def check_shadow_admins_app_owners(client: GraphServiceClient) -> CheckRes
     sp_config = ServicePrincipalsRequestBuilder.ServicePrincipalsRequestBuilderGetRequestConfiguration(
         query_parameters=sp_query,
     )
-    sp_response = await client.service_principals.get(request_configuration=sp_config)
+    try:
+        sp_response = await client.service_principals.get(request_configuration=sp_config)
+    except Exception as e:
+        return CheckResult(
+            check_id="shadow-admins-app-owners",
+            status="error",
+            message=f"Failed to retrieve service principals: {e}",
+        )
 
     while sp_response:
         for sp in sp_response.value or []:
@@ -103,8 +118,12 @@ async def check_shadow_admins_app_owners(client: GraphServiceClient) -> CheckRes
                 sp_id
             ).owners.get()
             sp_owners = sp_owners_response.value or []
-        except Exception:
-            pass
+        except Exception as e:
+            partial_errors.append({
+                "stage": "service_principal_owners",
+                "service_principal_id": sp_id,
+                "error": str(e),
+            })
 
         # 3b: Get app registration owners (via appId → Application object)
         try:
@@ -130,8 +149,12 @@ async def check_shadow_admins_app_owners(client: GraphServiceClient) -> CheckRes
                         app_object_id
                     ).owners.get()
                     app_reg_owners = app_owners_response.value or []
-        except Exception:
-            pass
+        except Exception as e:
+            partial_errors.append({
+                "stage": "app_registration_owners",
+                "service_principal_id": sp_id,
+                "error": str(e),
+            })
 
         # Track user owner IDs by source for ownership_source tagging
         sp_owner_ids = {
@@ -169,11 +192,29 @@ async def check_shadow_admins_app_owners(client: GraphServiceClient) -> CheckRes
                 })
 
     if not findings:
+        if partial_errors:
+            return CheckResult(
+                check_id="shadow-admins-app-owners",
+                status="warning",
+                message=(
+                    "No shadow admin owners found, but some ownership lookups failed."
+                ),
+                recommendation="Review API permissions or transient Graph errors.",
+                details={"partial_errors": partial_errors},
+            )
+
         return CheckResult(
             check_id="shadow-admins-app-owners",
             status="pass",
             message="No standard users own privileged service principals or app registrations.",
         )
+
+    details_summary = "\n".join(
+        f'- "{admin.get("service_principal_display_name", admin.get("service_principal_id", "Unknown"))}" '
+        f'owned by "{admin.get("user_principal_name") or admin.get("user_display_name", admin.get("user_id", "Unknown"))}"'
+        + (f' (via {admin.get("ownership_source", "").replace("_", " ")})' if admin.get("ownership_source") else "")
+        for admin in findings
+    )
 
     return CheckResult(
         check_id="shadow-admins-app-owners",
@@ -183,5 +224,9 @@ async def check_shadow_admins_app_owners(client: GraphServiceClient) -> CheckRes
             "Review app ownership. Owners can add credentials and act as the app. "
             "Remove unnecessary owners or replace with dedicated admin accounts."
         ),
-        details={"shadow_admins": findings},
+        details={
+            "shadow_admins": findings,
+            "details_summary": details_summary,
+            "partial_errors": partial_errors,
+        },
     )

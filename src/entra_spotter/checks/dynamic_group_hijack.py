@@ -51,6 +51,7 @@ async def check_dynamic_group_hijack(client: GraphServiceClient) -> CheckResult:
     Warning: Dynamic groups are assigned to privileged roles (any rule)
     Pass: No dynamic groups assigned to privileged roles
     """
+    partial_errors: list[dict] = []
     # Step 1: Find groups assigned to privileged directory roles
     query_params = RoleAssignmentsRequestBuilder.RoleAssignmentsRequestBuilderGetQueryParameters(
         expand=["principal"],
@@ -58,9 +59,16 @@ async def check_dynamic_group_hijack(client: GraphServiceClient) -> CheckResult:
     request_config = RoleAssignmentsRequestBuilder.RoleAssignmentsRequestBuilderGetRequestConfiguration(
         query_parameters=query_params,
     )
-    response = await client.role_management.directory.role_assignments.get(
-        request_configuration=request_config
-    )
+    try:
+        response = await client.role_management.directory.role_assignments.get(
+            request_configuration=request_config
+        )
+    except Exception as e:
+        return CheckResult(
+            check_id="dynamic-group-hijack",
+            status="error",
+            message=f"Failed to retrieve role assignments: {e}",
+        )
     assignments = []
     while response:
         assignments.extend(response.value or [])
@@ -97,7 +105,12 @@ async def check_dynamic_group_hijack(client: GraphServiceClient) -> CheckResult:
     for group_id, roles in privileged_group_ids.items():
         try:
             group = await client.groups.by_group_id(group_id).get()
-        except Exception:
+        except Exception as e:
+            partial_errors.append({
+                "stage": "group_details",
+                "group_id": group_id,
+                "error": str(e),
+            })
             continue
 
         # Check for dynamic membership
@@ -122,6 +135,17 @@ async def check_dynamic_group_hijack(client: GraphServiceClient) -> CheckResult:
             dynamic_groups_without_mutable.append(group_info)
 
     if not dynamic_groups_with_mutable and not dynamic_groups_without_mutable:
+        if partial_errors:
+            return CheckResult(
+                check_id="dynamic-group-hijack",
+                status="warning",
+                message=(
+                    "No dynamic groups detected, but some group lookups failed."
+                ),
+                recommendation="Review API permissions or transient Graph errors.",
+                details={"partial_errors": partial_errors},
+            )
+
         return CheckResult(
             check_id="dynamic-group-hijack",
             status="pass",
@@ -143,6 +167,7 @@ async def check_dynamic_group_hijack(client: GraphServiceClient) -> CheckResult:
             details={
                 "mutable_rule_groups": dynamic_groups_with_mutable,
                 "other_dynamic_groups": dynamic_groups_without_mutable,
+                "partial_errors": partial_errors,
             },
         )
 
@@ -160,5 +185,6 @@ async def check_dynamic_group_hijack(client: GraphServiceClient) -> CheckResult:
         details={
             "mutable_rule_groups": [],
             "other_dynamic_groups": dynamic_groups_without_mutable,
+            "partial_errors": partial_errors,
         },
     )

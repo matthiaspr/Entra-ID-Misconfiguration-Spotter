@@ -96,21 +96,7 @@ def format_text_output(results: list[tuple[Check, CheckResult]]) -> str:
             lines.append(f"       Recommendation: {result.recommendation}")
 
         if result.details and result.status in ("fail", "warning"):
-            # Show service principal details for sp-admin-roles and sp-graph-roles
-            if "service_principals" in result.details:
-                for sp in result.details["service_principals"]:
-                    if "role" in sp:
-                        lines.append(f"         - \"{sp['display_name']}\" → {sp['role']}")
-                    elif "app_role" in sp:
-                        lines.append(f"         - \"{sp['display_name']}\" → {sp['app_role']}")
-
-            if "shadow_admins" in result.details:
-                for admin in result.details["shadow_admins"]:
-                    sp_name = admin.get("service_principal_display_name", admin.get("service_principal_id", "Unknown"))
-                    user_name = admin.get("user_principal_name") or admin.get("user_display_name", admin.get("user_id", "Unknown"))
-                    source = admin.get("ownership_source", "")
-                    source_label = f" (via {source.replace('_', ' ')})" if source else ""
-                    lines.append(f"         - \"{sp_name}\" owned by \"{user_name}\"{source_label}")
+            lines.extend(_format_details(result.details))
 
 
         lines.append("")
@@ -135,6 +121,49 @@ def format_text_output(results: list[tuple[Check, CheckResult]]) -> str:
     lines.append(f"Summary: {', '.join(summary_parts)}")
 
     return "\n".join(lines)
+
+
+def _format_details(details: dict) -> list[str]:
+    """Format details for text output."""
+    if not details:
+        return []
+
+    summary = details.get("details_summary")
+    if isinstance(summary, str) and summary.strip():
+        return [f"       {line}" for line in summary.splitlines()]
+
+    lines: list[str] = []
+    for key, value in details.items():
+        if key == "details_summary":
+            continue
+        if isinstance(value, list):
+            lines.append(f"       {key}:")
+            if not value:
+                lines.append("         - (none)")
+                continue
+            for item in value:
+                lines.append(f"         - {_format_detail_item(item)}")
+        elif isinstance(value, dict):
+            lines.append(f"       {key}: {_format_detail_item(value)}")
+        else:
+            lines.append(f"       {key}: {value}")
+
+    return lines
+
+
+def _format_detail_item(value: object) -> str:
+    if isinstance(value, dict):
+        parts = []
+        for key in sorted(value.keys()):
+            item = value[key]
+            if isinstance(item, (dict, list)):
+                parts.append(f"{key}={json.dumps(item, ensure_ascii=True)}")
+            else:
+                parts.append(f"{key}={item}")
+        return ", ".join(parts)
+    if isinstance(value, list):
+        return json.dumps(value, ensure_ascii=True)
+    return str(value)
 
 
 def format_json_output(
@@ -234,7 +263,11 @@ def main(
         return
 
     # Get and validate configuration
-    tenant, client, secret = get_config(tenant_id, client_id, client_secret)
+    try:
+        tenant, client, secret = get_config(tenant_id, client_id, client_secret)
+    except click.ClickException as e:
+        click.echo(f"Error: {e.message}", err=True)
+        sys.exit(2)
 
     # Filter checks if specific ones requested
     if check_ids:
@@ -253,7 +286,8 @@ def main(
     try:
         graph_client = create_graph_client(tenant, client, secret)
     except Exception as e:
-        raise click.ClickException(f"Failed to create Graph client: {e}")
+        click.echo(f"Error: Failed to create Graph client: {e}", err=True)
+        sys.exit(2)
 
     # Run checks in a single async context
     results = asyncio.run(run_checks_async(graph_client, checks_to_run))

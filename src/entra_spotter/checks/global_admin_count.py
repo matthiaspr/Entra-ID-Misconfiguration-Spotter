@@ -35,7 +35,15 @@ async def check_global_admin_count(client: GraphServiceClient) -> CheckResult:
         query_parameters=query_params,
     )
     response = await client.role_management.directory.role_assignments.get(config)
-    assignments = response.value or []
+    assignments = []
+    while response:
+        assignments.extend(response.value or [])
+        if response.odata_next_link:
+            response = await client.role_management.directory.role_assignments.with_url(
+                response.odata_next_link
+            ).get()
+        else:
+            break
 
     # Collect users and service principals
     users: list[dict] = []
@@ -68,18 +76,27 @@ async def check_global_admin_count(client: GraphServiceClient) -> CheckResult:
 
         elif odata_type == "#microsoft.graph.group":
             # Expand group members
-            members_response = await client.groups.by_group_id(principal.id).members.get()
-            members = members_response.value or []
-            for member in members:
-                member_type = getattr(member, "odata_type", "")
-                if member_type == "#microsoft.graph.user" and member.id not in processed_user_ids:
-                    processed_user_ids.add(member.id)
-                    user = await client.users.by_user_id(member.id).get()
-                    users.append({
-                        "id": member.id,
-                        "upn": user.user_principal_name,
-                        "is_synced": user.on_premises_sync_enabled or False,
-                    })
+            members_request = client.groups.by_group_id(principal.id).members
+            members_response = await members_request.get()
+            while members_response:
+                members = members_response.value or []
+                for member in members:
+                    member_type = getattr(member, "odata_type", "")
+                    if member_type == "#microsoft.graph.user" and member.id not in processed_user_ids:
+                        processed_user_ids.add(member.id)
+                        user = await client.users.by_user_id(member.id).get()
+                        users.append({
+                            "id": member.id,
+                            "upn": user.user_principal_name,
+                            "is_synced": user.on_premises_sync_enabled or False,
+                        })
+
+                if getattr(members_response, "odata_next_link", None):
+                    members_response = await members_request.with_url(
+                        members_response.odata_next_link
+                    ).get()
+                else:
+                    break
 
     # Check for synced users
     synced_users = [u for u in users if u["is_synced"]]

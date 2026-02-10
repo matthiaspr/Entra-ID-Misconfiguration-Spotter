@@ -23,7 +23,10 @@ def mock_graph_client():
     client.groups.by_group_id = MagicMock(
         return_value=MagicMock(
             get=AsyncMock(),
-            members=MagicMock(get=AsyncMock()),
+            members=MagicMock(
+                get=AsyncMock(),
+                with_url=MagicMock(return_value=MagicMock(get=AsyncMock())),
+            ),
             owners=MagicMock(get=AsyncMock()),
         )
     )
@@ -112,8 +115,9 @@ class MockGroup:
 
 
 class MockGroupMembersResponse:
-    def __init__(self, members: list):
+    def __init__(self, members: list, odata_next_link: str | None = None):
         self.value = members
+        self.odata_next_link = odata_next_link
 
 
 class MockDirectoryRoleInfo:

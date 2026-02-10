@@ -71,5 +71,10 @@ async def check_sp_admin_roles(client: GraphServiceClient) -> CheckResult:
         status="warning",
         message=f"{len(findings)} service principal(s) in privileged admin roles.",
         recommendation="Review if these service principals require privileged access.",
-        details={"service_principals": findings},
+        details={
+            "service_principals": findings,
+            "details_summary": "\n".join(
+                f'- "{sp["display_name"]}" → {sp["role"]}' for sp in findings
+            ),
+        },
     )
