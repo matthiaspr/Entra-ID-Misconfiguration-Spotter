@@ -212,9 +212,11 @@ class MockCAGrantControls:
         self,
         built_in_controls: list[str] | None = None,
         authentication_strength: MockCAAuthenticationStrength | None = None,
+        operator: str | None = None,
     ):
         self.built_in_controls = built_in_controls
         self.authentication_strength = authentication_strength
+        self.operator = operator
 
 
 class MockCAUsers:
