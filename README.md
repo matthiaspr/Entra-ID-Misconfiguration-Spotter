@@ -84,7 +84,6 @@ The service principal needs these MS Graph application permissions:
 - `Application.Read.All`
 - `User.Read.All` - for resolving reviewer display names
 - `Group.Read.All` - for resolving reviewer display names and group ownership
-- `AuthenticationMethodsPolicy.Read` - for reading authentication method configurations
 
 ## Development
 
