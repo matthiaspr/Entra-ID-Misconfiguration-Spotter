@@ -1,7 +1,11 @@
 """Check for unused privileged service principals."""
 
+import json
 from datetime import datetime, timedelta, timezone
 
+from kiota_abstractions.headers_collection import HeadersCollection
+from kiota_abstractions.method import Method
+from kiota_abstractions.request_information import RequestInformation
 from msgraph import GraphServiceClient
 from msgraph.generated.role_management.directory.role_assignments.role_assignments_request_builder import (
     RoleAssignmentsRequestBuilder,
@@ -21,6 +25,52 @@ SENSITIVE_APP_ROLES: dict[str, str] = {
 }
 
 INACTIVITY_DAYS = 180
+
+
+async def _get_sp_last_sign_in(
+    client: GraphServiceClient, app_id: str,
+) -> datetime | None:
+    """Get the most recent sign-in time for a service principal.
+
+    Uses the beta reports API (servicePrincipalSignInActivities) since
+    sign-in activity is not available on the SP object in the v1.0 API.
+    Requires AuditLog.Read.All permission.
+
+    Returns None if sign-in data is unavailable.
+    """
+    request_info = RequestInformation()
+    request_info.http_method = Method.GET
+    request_info.url = (
+        "https://graph.microsoft.com/beta/reports/servicePrincipalSignInActivities"
+        f"?$filter=appId eq '{app_id}'"
+    )
+    request_info.headers = HeadersCollection()
+    request_info.headers.try_add("Accept", "application/json")
+
+    try:
+        response_bytes = await client.request_adapter.send_primitive_async(
+            request_info, "bytes",
+        )
+        if not response_bytes:
+            return None
+
+        data = json.loads(response_bytes)
+        items = data.get("value", [])
+        if not items:
+            return None
+
+        # lastSignInActivity covers all flows (client credentials, delegated, etc.)
+        last_activity = items[0].get("lastSignInActivity") or {}
+        timestamp = (
+            last_activity.get("lastSuccessfulSignInDateTime")
+            or last_activity.get("lastSignInDateTime")
+        )
+        if not timestamp:
+            return None
+
+        return datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+    except Exception:
+        return None
 
 
 async def check_unused_apps_cleanup(client: GraphServiceClient) -> CheckResult:
@@ -98,7 +148,8 @@ async def check_unused_apps_cleanup(client: GraphServiceClient) -> CheckResult:
             message="No privileged service principals found.",
         )
 
-    # Step 3: Check sign-in activity for each privileged SP
+    # Step 3: Check sign-in activity for each privileged SP via the beta
+    # reports API (signInActivity is not on the SP object in the v1.0 API).
     cutoff = datetime.now(timezone.utc) - timedelta(days=INACTIVITY_DAYS)
     stale_apps: list[dict] = []
 
@@ -108,19 +159,10 @@ async def check_unused_apps_cleanup(client: GraphServiceClient) -> CheckResult:
         except Exception:
             continue
 
+        app_id = getattr(sp, "app_id", None)
         last_sign_in = None
-        sign_in_activity = getattr(sp, "sign_in_activity", None)
-        if sign_in_activity:
-            # Use lastSuccessfulSignInDateTime (covers both interactive and
-            # non-interactive flows) with fallback to the individual timestamps.
-            # Service principals typically use client credentials (non-interactive),
-            # so lastSignInDateTime alone misses most SP activity.
-            candidates = [
-                getattr(sign_in_activity, "last_successful_sign_in_date_time", None),
-                getattr(sign_in_activity, "last_non_interactive_sign_in_date_time", None),
-                getattr(sign_in_activity, "last_sign_in_date_time", None),
-            ]
-            last_sign_in = max((d for d in candidates if d is not None), default=None)
+        if app_id:
+            last_sign_in = await _get_sp_last_sign_in(client, app_id)
 
         if last_sign_in is None or last_sign_in < cutoff:
             days_inactive = None

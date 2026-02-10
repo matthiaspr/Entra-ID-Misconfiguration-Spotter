@@ -84,6 +84,7 @@ The service principal needs these MS Graph application permissions:
 - `Application.Read.All`
 - `User.Read.All` - for resolving reviewer display names
 - `Group.Read.All` - for resolving reviewer display names and group ownership
+- `AuditLog.Read.All` - for service principal sign-in activity (beta reports API)
 
 ## Development
 
