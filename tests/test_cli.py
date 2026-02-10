@@ -126,6 +126,45 @@ class TestOutputFormatting:
         assert "1 warning" in output
         assert "1 passed" in output
 
+    def test_text_output_renders_shadow_admin_details(self):
+        """Text output should render shadow admin finding details."""
+        results = [
+            (
+                Check(id="shadow-admins-app-owners", name="Shadow Admin \u2013 App Owners", run=lambda x: None),
+                CheckResult(
+                    check_id="shadow-admins-app-owners",
+                    status="warning",
+                    message="2 user(s) are owners of privileged service principals or app registrations (shadow admins).",
+                    recommendation="Review app ownership.",
+                    details={"shadow_admins": [
+                        {
+                            "user_id": "user-1",
+                            "user_display_name": "Jane Doe",
+                            "user_principal_name": "jane.doe@contoso.com",
+                            "service_principal_id": "sp-1",
+                            "service_principal_display_name": "My Privileged App",
+                            "ownership_source": "app_registration",
+                            "privileges": ["Global Administrator"],
+                        },
+                        {
+                            "user_id": "user-2",
+                            "user_display_name": "John Smith",
+                            "user_principal_name": "john.smith@contoso.com",
+                            "service_principal_id": "sp-2",
+                            "service_principal_display_name": "Automation SP",
+                            "ownership_source": "both",
+                            "privileges": ["Global Administrator"],
+                        },
+                    ]},
+                ),
+            ),
+        ]
+
+        output = format_text_output(results)
+
+        assert '"My Privileged App" owned by "jane.doe@contoso.com" (via app registration)' in output
+        assert '"Automation SP" owned by "john.smith@contoso.com" (via both)' in output
+
     def test_json_output_is_valid_json(self, sample_results):
         """JSON output should be valid JSON."""
         output = format_json_output(sample_results, "test-tenant")

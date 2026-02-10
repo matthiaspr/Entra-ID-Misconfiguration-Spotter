@@ -36,6 +36,14 @@ def mock_graph_client():
             owners=MagicMock(get=AsyncMock()),
         )
     )
+    # For application lookup and owners
+    client.applications.get = AsyncMock()
+    client.applications.by_application_id = MagicMock(
+        return_value=MagicMock(
+            get=AsyncMock(),
+            owners=MagicMock(get=AsyncMock()),
+        )
+    )
     # For authentication methods policy
     client.policies.authentication_methods_policy.authentication_method_configurations.by_authentication_method_configuration_id = MagicMock(
         return_value=MagicMock(get=AsyncMock())
@@ -130,10 +138,11 @@ class MockDirectoryRolesResponse:
 
 
 class MockRoleMember:
-    def __init__(self, id: str, display_name: str, odata_type: str):
+    def __init__(self, id: str, display_name: str, odata_type: str, user_principal_name: str | None = None):
         self.id = id
         self.display_name = display_name
         self.odata_type = odata_type
+        self.user_principal_name = user_principal_name
 
 
 class MockRoleMembersResponse:
@@ -312,3 +321,15 @@ class MockAuthenticatorConfig:
     def __init__(self, state: str, feature_settings=None):
         self.state = state
         self.feature_settings = feature_settings
+
+
+class MockApplication:
+    def __init__(self, id: str, app_id: str, display_name: str = ""):
+        self.id = id
+        self.app_id = app_id
+        self.display_name = display_name
+
+
+class MockApplicationsResponse:
+    def __init__(self, applications: list[MockApplication]):
+        self.value = applications

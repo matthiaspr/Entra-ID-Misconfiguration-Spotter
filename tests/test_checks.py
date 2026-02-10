@@ -22,7 +22,6 @@ from entra_spotter.checks.privileged_roles_phishing_resistant_mfa import (
 from entra_spotter.checks.shadow_admins_app_owners import check_shadow_admins_app_owners
 from entra_spotter.checks.shadow_admins_group_owners import check_shadow_admins_group_owners
 from entra_spotter.checks.dynamic_group_hijack import check_dynamic_group_hijack
-from entra_spotter.checks.unused_apps_cleanup import check_unused_apps_cleanup
 from entra_spotter.checks.auth_methods_number_matching import check_auth_methods_number_matching
 from entra_spotter.checks.break_glass_exclusion import check_break_glass_exclusion
 
@@ -56,6 +55,8 @@ from conftest import (
     MockIncludeTarget,
     MockFeatureSettings,
     MockAuthenticatorConfig,
+    MockApplication,
+    MockApplicationsResponse,
 )
 
 
@@ -1894,6 +1895,16 @@ class TestShadowAdminsAppOwners:
         mock_graph_client.service_principals.by_service_principal_id.return_value.owners.get.return_value = (
             MockOwnersResponse([])
         )
+        # SP detail returns appId, but app registration also has no owners
+        mock_graph_client.service_principals.by_service_principal_id.return_value.get.return_value = (
+            MockServicePrincipalDetail("sp-1", "Privileged App", app_id="app-id-1")
+        )
+        mock_graph_client.applications.get.return_value = MockApplicationsResponse([
+            MockApplication(id="app-obj-1", app_id="app-id-1"),
+        ])
+        mock_graph_client.applications.by_application_id.return_value.owners.get.return_value = (
+            MockOwnersResponse([])
+        )
 
         result = await check_shadow_admins_app_owners(mock_graph_client)
 
@@ -1909,9 +1920,19 @@ class TestShadowAdminsAppOwners:
         )
         mock_graph_client.service_principals.get.return_value = MockServicePrincipalsResponse([])
 
-        user_owner = MockRoleMember("user-1", "Shadow Admin User", "#microsoft.graph.user")
+        user_owner = MockRoleMember("user-1", "Shadow Admin User", "#microsoft.graph.user", user_principal_name="shadow.admin@contoso.com")
         mock_graph_client.service_principals.by_service_principal_id.return_value.owners.get.return_value = (
             MockOwnersResponse([user_owner])
+        )
+        # SP detail returns appId, app registration has no owners
+        mock_graph_client.service_principals.by_service_principal_id.return_value.get.return_value = (
+            MockServicePrincipalDetail("sp-1", "Privileged App", app_id="app-id-1")
+        )
+        mock_graph_client.applications.get.return_value = MockApplicationsResponse([
+            MockApplication(id="app-obj-1", app_id="app-id-1"),
+        ])
+        mock_graph_client.applications.by_application_id.return_value.owners.get.return_value = (
+            MockOwnersResponse([])
         )
 
         result = await check_shadow_admins_app_owners(mock_graph_client)
@@ -1922,6 +1943,9 @@ class TestShadowAdminsAppOwners:
         assert "shadow admins" in result.message
         assert len(result.details["shadow_admins"]) == 1
         assert result.details["shadow_admins"][0]["user_display_name"] == "Shadow Admin User"
+        assert result.details["shadow_admins"][0]["user_principal_name"] == "shadow.admin@contoso.com"
+        assert result.details["shadow_admins"][0]["service_principal_display_name"] == "Privileged App"
+        assert result.details["shadow_admins"][0]["ownership_source"] == "service_principal"
 
     async def test_warning_with_sensitive_graph_role(self, mock_graph_client):
         """Should warn when user owns SP with sensitive Graph app role."""
@@ -1938,15 +1962,156 @@ class TestShadowAdminsAppOwners:
             )
         ])
 
-        user_owner = MockRoleMember("user-1", "Shadow Admin", "#microsoft.graph.user")
+        user_owner = MockRoleMember("user-1", "Shadow Admin", "#microsoft.graph.user", user_principal_name="shadow@contoso.com")
         mock_graph_client.service_principals.by_service_principal_id.return_value.owners.get.return_value = (
             MockOwnersResponse([user_owner])
+        )
+        # SP detail returns appId, app registration has no owners
+        mock_graph_client.service_principals.by_service_principal_id.return_value.get.return_value = (
+            MockServicePrincipalDetail("sp-2", "Graph Admin App", app_id="app-id-2")
+        )
+        mock_graph_client.applications.get.return_value = MockApplicationsResponse([
+            MockApplication(id="app-obj-2", app_id="app-id-2"),
+        ])
+        mock_graph_client.applications.by_application_id.return_value.owners.get.return_value = (
+            MockOwnersResponse([])
         )
 
         result = await check_shadow_admins_app_owners(mock_graph_client)
 
         assert result.status == "warning"
         assert len(result.details["shadow_admins"]) == 1
+        assert result.details["shadow_admins"][0]["user_principal_name"] == "shadow@contoso.com"
+        assert result.details["shadow_admins"][0]["service_principal_display_name"] == "Graph Admin App"
+        assert result.details["shadow_admins"][0]["ownership_source"] == "service_principal"
+
+    async def test_warning_when_user_owns_app_registration_only(self, mock_graph_client):
+        """Should warn when a user owns only the app registration, not the SP."""
+        sp_principal = MockRoleMember("sp-1", "Privileged App", "#microsoft.graph.servicePrincipal")
+        mock_graph_client.role_management.directory.role_assignments.get.return_value = (
+            MockRoleAssignmentsResponse([
+                MockRoleAssignment(GA_ROLE_ID, "sp-1", sp_principal),
+            ])
+        )
+        mock_graph_client.service_principals.get.return_value = MockServicePrincipalsResponse([])
+        # SP has no owners
+        mock_graph_client.service_principals.by_service_principal_id.return_value.owners.get.return_value = (
+            MockOwnersResponse([])
+        )
+        # SP detail returns appId
+        mock_graph_client.service_principals.by_service_principal_id.return_value.get.return_value = (
+            MockServicePrincipalDetail("sp-1", "Privileged App", app_id="app-id-1")
+        )
+        mock_graph_client.applications.get.return_value = MockApplicationsResponse([
+            MockApplication(id="app-obj-1", app_id="app-id-1"),
+        ])
+        # App registration has a user owner
+        user_owner = MockRoleMember("user-1", "App Reg Owner", "#microsoft.graph.user", user_principal_name="appreg.owner@contoso.com")
+        mock_graph_client.applications.by_application_id.return_value.owners.get.return_value = (
+            MockOwnersResponse([user_owner])
+        )
+
+        result = await check_shadow_admins_app_owners(mock_graph_client)
+
+        assert result.status == "warning"
+        assert "1 user(s)" in result.message
+        assert len(result.details["shadow_admins"]) == 1
+        assert result.details["shadow_admins"][0]["user_display_name"] == "App Reg Owner"
+        assert result.details["shadow_admins"][0]["user_principal_name"] == "appreg.owner@contoso.com"
+        assert result.details["shadow_admins"][0]["service_principal_display_name"] == "Privileged App"
+        assert result.details["shadow_admins"][0]["ownership_source"] == "app_registration"
+
+    async def test_deduplicates_owners_across_sp_and_app_registration(self, mock_graph_client):
+        """Should deduplicate when same user owns both SP and app registration."""
+        sp_principal = MockRoleMember("sp-1", "Privileged App", "#microsoft.graph.servicePrincipal")
+        mock_graph_client.role_management.directory.role_assignments.get.return_value = (
+            MockRoleAssignmentsResponse([
+                MockRoleAssignment(GA_ROLE_ID, "sp-1", sp_principal),
+            ])
+        )
+        mock_graph_client.service_principals.get.return_value = MockServicePrincipalsResponse([])
+        # Same user owns both SP and app registration
+        user_owner = MockRoleMember("user-1", "Dual Owner", "#microsoft.graph.user", user_principal_name="dual.owner@contoso.com")
+        mock_graph_client.service_principals.by_service_principal_id.return_value.owners.get.return_value = (
+            MockOwnersResponse([user_owner])
+        )
+        mock_graph_client.service_principals.by_service_principal_id.return_value.get.return_value = (
+            MockServicePrincipalDetail("sp-1", "Privileged App", app_id="app-id-1")
+        )
+        mock_graph_client.applications.get.return_value = MockApplicationsResponse([
+            MockApplication(id="app-obj-1", app_id="app-id-1"),
+        ])
+        mock_graph_client.applications.by_application_id.return_value.owners.get.return_value = (
+            MockOwnersResponse([user_owner])
+        )
+
+        result = await check_shadow_admins_app_owners(mock_graph_client)
+
+        assert result.status == "warning"
+        assert "1 user(s)" in result.message
+        assert len(result.details["shadow_admins"]) == 1
+        assert result.details["shadow_admins"][0]["user_principal_name"] == "dual.owner@contoso.com"
+        assert result.details["shadow_admins"][0]["service_principal_display_name"] == "Privileged App"
+        assert result.details["shadow_admins"][0]["ownership_source"] == "both"
+
+    async def test_handles_sp_without_app_registration(self, mock_graph_client):
+        """Should still check SP owners when SP has no appId (managed identity)."""
+        sp_principal = MockRoleMember("sp-1", "Managed Identity", "#microsoft.graph.servicePrincipal")
+        mock_graph_client.role_management.directory.role_assignments.get.return_value = (
+            MockRoleAssignmentsResponse([
+                MockRoleAssignment(GA_ROLE_ID, "sp-1", sp_principal),
+            ])
+        )
+        mock_graph_client.service_principals.get.return_value = MockServicePrincipalsResponse([])
+        # SP has a user owner
+        user_owner = MockRoleMember("user-1", "SP Owner", "#microsoft.graph.user", user_principal_name="sp.owner@contoso.com")
+        mock_graph_client.service_principals.by_service_principal_id.return_value.owners.get.return_value = (
+            MockOwnersResponse([user_owner])
+        )
+        # SP detail has no appId (managed identity)
+        mock_graph_client.service_principals.by_service_principal_id.return_value.get.return_value = (
+            MockServicePrincipalDetail("sp-1", "Managed Identity", app_id=None)
+        )
+
+        result = await check_shadow_admins_app_owners(mock_graph_client)
+
+        assert result.status == "warning"
+        assert "1 user(s)" in result.message
+        assert len(result.details["shadow_admins"]) == 1
+        assert result.details["shadow_admins"][0]["user_display_name"] == "SP Owner"
+        assert result.details["shadow_admins"][0]["user_principal_name"] == "sp.owner@contoso.com"
+        assert result.details["shadow_admins"][0]["service_principal_display_name"] == "Managed Identity"
+        assert result.details["shadow_admins"][0]["ownership_source"] == "service_principal"
+
+    async def test_handles_app_lookup_returning_empty(self, mock_graph_client):
+        """Should still check SP owners when appId exists but no Application found."""
+        sp_principal = MockRoleMember("sp-1", "External App", "#microsoft.graph.servicePrincipal")
+        mock_graph_client.role_management.directory.role_assignments.get.return_value = (
+            MockRoleAssignmentsResponse([
+                MockRoleAssignment(GA_ROLE_ID, "sp-1", sp_principal),
+            ])
+        )
+        mock_graph_client.service_principals.get.return_value = MockServicePrincipalsResponse([])
+        # SP has a user owner
+        user_owner = MockRoleMember("user-1", "SP Owner", "#microsoft.graph.user", user_principal_name="sp.owner@contoso.com")
+        mock_graph_client.service_principals.by_service_principal_id.return_value.owners.get.return_value = (
+            MockOwnersResponse([user_owner])
+        )
+        # SP detail returns appId, but application lookup returns empty (multi-tenant/first-party)
+        mock_graph_client.service_principals.by_service_principal_id.return_value.get.return_value = (
+            MockServicePrincipalDetail("sp-1", "External App", app_id="external-app-id")
+        )
+        mock_graph_client.applications.get.return_value = MockApplicationsResponse([])
+
+        result = await check_shadow_admins_app_owners(mock_graph_client)
+
+        assert result.status == "warning"
+        assert "1 user(s)" in result.message
+        assert len(result.details["shadow_admins"]) == 1
+        assert result.details["shadow_admins"][0]["user_display_name"] == "SP Owner"
+        assert result.details["shadow_admins"][0]["user_principal_name"] == "sp.owner@contoso.com"
+        assert result.details["shadow_admins"][0]["service_principal_display_name"] == "External App"
+        assert result.details["shadow_admins"][0]["ownership_source"] == "service_principal"
 
 
 class TestShadowAdminsGroupOwners:
@@ -2125,109 +2290,6 @@ class TestDynamicGroupHijack:
         attrs = result.details["mutable_rule_groups"][0]["mutable_attributes"]
         assert "department" in attrs
         assert "jobtitle" in attrs
-
-
-class TestUnusedAppsCleanup:
-    """Tests for unused privileged apps check."""
-
-    async def test_pass_when_no_privileged_sps(self, mock_graph_client):
-        """Should pass when no service principals hold privileged roles."""
-        mock_graph_client.role_management.directory.role_assignments.get.return_value = (
-            MockRoleAssignmentsResponse([])
-        )
-        mock_graph_client.service_principals.get.return_value = MockServicePrincipalsResponse([])
-
-        result = await check_unused_apps_cleanup(mock_graph_client)
-
-        assert result.status == "pass"
-        assert result.check_id == "unused-apps-cleanup"
-
-    async def test_pass_when_all_sps_recently_active(self, mock_graph_client):
-        """Should pass when all privileged SPs have recent sign-in activity."""
-        sp_principal = MockRoleMember("sp-1", "Active App", "#microsoft.graph.servicePrincipal")
-        mock_graph_client.role_management.directory.role_assignments.get.return_value = (
-            MockRoleAssignmentsResponse([
-                MockRoleAssignment(GA_ROLE_ID, "sp-1", sp_principal),
-            ])
-        )
-        mock_graph_client.service_principals.get.return_value = MockServicePrincipalsResponse([])
-
-        recent_date = datetime.now(timezone.utc) - timedelta(days=30)
-        mock_graph_client.service_principals.by_service_principal_id.return_value.get.return_value = (
-            MockServicePrincipalDetail(
-                id="sp-1",
-                display_name="Active App",
-                app_id="app-id-1",
-            )
-        )
-        # Mock beta reports API response
-        import json
-        mock_graph_client.request_adapter.send_primitive_async.return_value = json.dumps({
-            "value": [{"lastSignInActivity": {
-                "lastSuccessfulSignInDateTime": recent_date.isoformat(),
-            }}]
-        }).encode()
-
-        result = await check_unused_apps_cleanup(mock_graph_client)
-
-        assert result.status == "pass"
-
-    async def test_warning_when_sp_inactive(self, mock_graph_client):
-        """Should warn when privileged SP hasn't signed in for >180 days."""
-        sp_principal = MockRoleMember("sp-1", "Stale App", "#microsoft.graph.servicePrincipal")
-        mock_graph_client.role_management.directory.role_assignments.get.return_value = (
-            MockRoleAssignmentsResponse([
-                MockRoleAssignment(GA_ROLE_ID, "sp-1", sp_principal),
-            ])
-        )
-        mock_graph_client.service_principals.get.return_value = MockServicePrincipalsResponse([])
-
-        old_date = datetime.now(timezone.utc) - timedelta(days=200)
-        mock_graph_client.service_principals.by_service_principal_id.return_value.get.return_value = (
-            MockServicePrincipalDetail(
-                id="sp-1",
-                display_name="Stale App",
-                app_id="app-id-1",
-            )
-        )
-        import json
-        mock_graph_client.request_adapter.send_primitive_async.return_value = json.dumps({
-            "value": [{"lastSignInActivity": {
-                "lastSuccessfulSignInDateTime": old_date.isoformat(),
-            }}]
-        }).encode()
-
-        result = await check_unused_apps_cleanup(mock_graph_client)
-
-        assert result.status == "warning"
-        assert result.check_id == "unused-apps-cleanup"
-        assert "1 privileged service principal(s)" in result.message
-        assert len(result.details["stale_apps"]) == 1
-
-    async def test_warning_when_sp_never_signed_in(self, mock_graph_client):
-        """Should warn when privileged SP has never signed in."""
-        sp_principal = MockRoleMember("sp-1", "Never Used App", "#microsoft.graph.servicePrincipal")
-        mock_graph_client.role_management.directory.role_assignments.get.return_value = (
-            MockRoleAssignmentsResponse([
-                MockRoleAssignment(GA_ROLE_ID, "sp-1", sp_principal),
-            ])
-        )
-        mock_graph_client.service_principals.get.return_value = MockServicePrincipalsResponse([])
-
-        mock_graph_client.service_principals.by_service_principal_id.return_value.get.return_value = (
-            MockServicePrincipalDetail(
-                id="sp-1",
-                display_name="Never Used App",
-                app_id="app-id-1",
-            )
-        )
-        # Beta API returns no sign-in activity
-        mock_graph_client.request_adapter.send_primitive_async.return_value = None
-
-        result = await check_unused_apps_cleanup(mock_graph_client)
-
-        assert result.status == "warning"
-        assert result.details["stale_apps"][0]["last_sign_in"] == "Never"
 
 
 class TestAuthMethodsNumberMatching:
