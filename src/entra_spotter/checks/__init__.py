@@ -43,7 +43,6 @@ from entra_spotter.checks.privileged_roles_phishing_resistant_mfa import check_p
 from entra_spotter.checks.shadow_admins_app_owners import check_shadow_admins_app_owners
 from entra_spotter.checks.shadow_admins_group_owners import check_shadow_admins_group_owners
 from entra_spotter.checks.dynamic_group_hijack import check_dynamic_group_hijack
-from entra_spotter.checks.unused_apps_cleanup import check_unused_apps_cleanup
 from entra_spotter.checks.auth_methods_number_matching import check_auth_methods_number_matching
 from entra_spotter.checks.break_glass_exclusion import check_break_glass_exclusion
 
@@ -117,11 +116,6 @@ ALL_CHECKS: list[Check] = [
         id="dynamic-group-hijack",
         name="Dynamic Group Privilege Escalation",
         run=check_dynamic_group_hijack,
-    ),
-    Check(
-        id="unused-apps-cleanup",
-        name="Unused Privileged Applications",
-        run=check_unused_apps_cleanup,
     ),
     Check(
         id="auth-methods-number-matching",

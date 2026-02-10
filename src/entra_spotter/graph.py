@@ -9,16 +9,7 @@ def create_graph_client(
     client_id: str,
     client_secret: str,
 ) -> GraphServiceClient:
-    """Create an authenticated MS Graph client.
-
-    Args:
-        tenant_id: Azure tenant ID
-        client_id: Service principal client ID
-        client_secret: Service principal client secret
-
-    Returns:
-        Authenticated GraphServiceClient
-    """
+    """Create an authenticated MS Graph client."""
     credential = ClientSecretCredential(
         tenant_id=tenant_id,
         client_id=client_id,

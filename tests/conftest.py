@@ -13,6 +13,9 @@ def mock_graph_client():
     client.policies.authorization_policy.get = AsyncMock()
     client.policies.admin_consent_request_policy.get = AsyncMock()
     client.role_management.directory.role_assignments.get = AsyncMock()
+    client.role_management.directory.role_assignments.with_url = MagicMock(
+        return_value=MagicMock(get=AsyncMock())
+    )
     client.service_principals.get = AsyncMock()
     client.identity.conditional_access.policies.get = AsyncMock()
     # For reviewer resolution and user lookup
@@ -163,8 +166,9 @@ class MockRoleAssignment:
 
 
 class MockRoleAssignmentsResponse:
-    def __init__(self, assignments: list[MockRoleAssignment]):
+    def __init__(self, assignments: list[MockRoleAssignment], odata_next_link: str | None = None):
         self.value = assignments
+        self.odata_next_link = odata_next_link
 
 
 class MockAppRoleAssignment:

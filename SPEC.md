@@ -38,12 +38,27 @@ entra-id-spotter/
 │       ├── graph.py            # MS Graph authentication and client
 │       └── checks/
 │           ├── __init__.py     # CheckResult, Check dataclass, ALL_CHECKS registry
+│           ├── _shared.py      # Shared constants and helpers
 │           ├── user_consent.py
 │           ├── admin_consent_workflow.py
-│           └── sp_admin_roles.py
+│           ├── sp_admin_roles.py
+│           ├── sp_graph_roles.py
+│           ├── legacy_auth_blocked.py
+│           ├── device_code_blocked.py
+│           ├── privileged_roles_mfa.py
+│           ├── privileged_roles_phishing_resistant_mfa.py
+│           ├── global_admin_count.py
+│           ├── guest_invite_policy.py
+│           ├── guest_access.py
+│           ├── shadow_admins_app_owners.py
+│           ├── shadow_admins_group_owners.py
+│           ├── dynamic_group_hijack.py
+│           ├── auth_methods_number_matching.py
+│           └── break_glass_exclusion.py
 └── tests/
     ├── conftest.py             # Shared fixtures, mocked Graph client
-    └── test_checks.py          # All check tests
+    ├── test_checks.py          # All check tests
+    └── test_cli.py             # CLI tests
 ```
 
 **Design notes:**
@@ -365,9 +380,9 @@ ALL_CHECKS: list[Check] = [
 
 | | |
 |---|---|
-| **API** | `GET /directoryRoles` → `GET /directoryRoles/{id}/members` |
+| **API** | `GET /roleManagement/directory/roleAssignments?$expand=principal` |
 | **Permission** | `RoleManagement.Read.Directory` |
-| **Privileged Roles** | Global Administrator, Privileged Role Administrator, Application Administrator, Cloud Application Administrator |
+| **Privileged Roles** | 14 roles defined in `_shared.PRIVILEGED_ROLES` (Global Administrator, Application Administrator, Authentication Administrator, Billing Administrator, Cloud Application Administrator, Conditional Access Administrator, Exchange Administrator, Helpdesk Administrator, Password Administrator, Privileged Authentication Administrator, Privileged Role Administrator, Security Administrator, SharePoint Administrator, User Administrator) |
 | **PASS** | No service principals in privileged roles |
 | **WARN** | One or more service principals found in privileged roles |
 
@@ -385,6 +400,8 @@ These roles are dangerous because they allow privilege escalation:
 - **RoleManagement.ReadWrite.Directory**: Can assign any directory role (including Global Admin)
 - **AppRoleAssignment.ReadWrite.All**: Can grant any app role to any service principal
 - **UserAuthenticationMethod.ReadWrite.All**: Can generate a Temporary Access Pass (TAP) to take over any user account
+
+> **Note:** The tool now implements 16 checks total. Detailed specifications for checks beyond the original 4 are documented in `CLAUDE.md`.
 
 ---
 

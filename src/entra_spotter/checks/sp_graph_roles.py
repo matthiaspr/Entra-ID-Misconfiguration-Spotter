@@ -6,14 +6,7 @@ from msgraph.generated.service_principals.service_principals_request_builder imp
 )
 
 from entra_spotter.checks import CheckResult
-
-# Sensitive MS Graph app role IDs
-# These roles allow privilege escalation if compromised
-SENSITIVE_APP_ROLES = {
-    "9e3f62cf-ca93-4989-b6ce-bf83c28f9fe8": "RoleManagement.ReadWrite.Directory",
-    "06b708a9-e830-4db3-a914-8e69da51d44f": "AppRoleAssignment.ReadWrite.All",
-    "50483e42-d915-4231-9639-7fdb7fd190e5": "UserAuthenticationMethod.ReadWrite.All",
-}
+from entra_spotter.checks._shared import SENSITIVE_APP_ROLES
 
 
 async def check_sp_graph_roles(client: GraphServiceClient) -> CheckResult:

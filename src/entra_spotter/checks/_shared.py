@@ -1,4 +1,4 @@
-"""Shared helpers for Conditional Access policy checks."""
+"""Shared helpers and constants for security checks."""
 
 # Privileged role template IDs that should require MFA / phishing-resistant MFA.
 # https://learn.microsoft.com/en-us/entra/identity/role-based-access-control/permissions-reference
@@ -17,6 +17,13 @@ PRIVILEGED_ROLES: dict[str, str] = {
     "194ae4cb-b126-40b2-bd5b-6091b380977d": "Security Administrator",
     "f28a1f50-f6e7-4571-818b-6a12f2af6b6c": "SharePoint Administrator",
     "fe930be7-5e62-47db-91af-98c3a49a38b1": "User Administrator",
+}
+
+# Sensitive MS Graph app role IDs that allow privilege escalation if compromised.
+SENSITIVE_APP_ROLES: dict[str, str] = {
+    "9e3f62cf-ca93-4989-b6ce-bf83c28f9fe8": "RoleManagement.ReadWrite.Directory",
+    "06b708a9-e830-4db3-a914-8e69da51d44f": "AppRoleAssignment.ReadWrite.All",
+    "50483e42-d915-4231-9639-7fdb7fd190e5": "UserAuthenticationMethod.ReadWrite.All",
 }
 
 
