@@ -109,7 +109,6 @@ export AZURE_CLIENT_SECRET="your-client-secret"
 - `Application.Read.All` (Application)
 - `User.Read.All` (Application) - for resolving reviewer display names
 - `Group.Read.All` (Application) - for resolving reviewer display names and group ownership
-- `AuthenticationMethodsPolicy.Read` (Application) - for reading authentication method configurations
 
 All are read-only. The tool never modifies any Entra ID configuration.
 
