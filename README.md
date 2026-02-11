@@ -61,6 +61,7 @@ uv run entra-spotter --list-checks
 | `admin-consent-workflow` | Verifies admin consent workflow is enabled with reviewers |
 | `sp-admin-roles` | Identifies service principals in privileged admin roles |
 | `sp-graph-roles` | Identifies service principals with sensitive MS Graph app roles |
+| `sp-multiple-secrets` | Identifies service principals with 2 or more assigned credentials across both service principals and matching app registrations |
 | `legacy-auth-blocked` | Verifies a CA policy blocks legacy authentication protocols |
 | `device-code-blocked` | Verifies a CA policy blocks device code flow authentication |
 | `privileged-roles-mfa` | Verifies MFA is required for all 14 privileged admin roles |

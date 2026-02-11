@@ -43,6 +43,7 @@ entra-id-spotter/
 │           ├── admin_consent_workflow.py
 │           ├── sp_admin_roles.py
 │           ├── sp_graph_roles.py
+│           ├── sp_multiple_secrets.py
 │           ├── legacy_auth_blocked.py
 │           ├── device_code_blocked.py
 │           ├── privileged_roles_mfa.py
@@ -296,11 +297,13 @@ Checks are explicitly registered in `checks/__init__.py`:
 from entra_spotter.checks.user_consent import check_user_consent
 from entra_spotter.checks.admin_consent_workflow import check_admin_consent_workflow
 from entra_spotter.checks.sp_admin_roles import check_sp_admin_roles
+from entra_spotter.checks.sp_multiple_secrets import check_sp_multiple_secrets
 
 ALL_CHECKS: list[Check] = [
     Check(id="user-consent", name="User Consent Settings", run=check_user_consent),
     Check(id="admin-consent-workflow", name="Admin Consent Workflow", run=check_admin_consent_workflow),
     Check(id="sp-admin-roles", name="Service Principal Admin Roles", run=check_sp_admin_roles),
+    Check(id="sp-multiple-secrets", name="Service Principal Multiple Secrets", run=check_sp_multiple_secrets),
 ]
 ```
 
@@ -402,7 +405,17 @@ These roles are dangerous because they allow privilege escalation:
 - **AppRoleAssignment.ReadWrite.All**: Can grant any app role to any service principal
 - **UserAuthenticationMethod.ReadWrite.All**: Can generate a Temporary Access Pass (TAP) to take over any user account
 
-> **Note:** The tool now implements 16 checks total. Detailed specifications for checks beyond the original 4 are documented in `CLAUDE.md`.
+### 5. Service Principal Multiple Secrets (`sp-multiple-secrets`)
+
+| | |
+|---|---|
+| **API** | `GET /servicePrincipals?$select=id,displayName,appId,passwordCredentials,keyCredentials`, `GET /applications?$select=id,appId,displayName,passwordCredentials,keyCredentials` |
+| **Permission** | `Application.Read.All` |
+| **Logic** | For each service principal, combine credentials from the service principal object and its matching app registration (`appId`) and count `passwordCredentials` (client secrets) + `keyCredentials` (certificates) |
+| **PASS** | No service principal has 2 or more assigned credentials |
+| **WARN** | One or more service principals have 2 or more assigned credentials |
+
+> **Note:** The tool now implements 18 checks total. Detailed specifications for checks beyond the original 5 are documented in `CLAUDE.md`.
 
 ---
 

@@ -69,6 +69,7 @@ Checks are explicitly registered in `checks/__init__.py` (no auto-discovery).
 | `admin-consent-workflow` | `admin_consent_workflow.py` | `GET /policies/adminConsentRequestPolicy`, resolves `/users/{id}`, `/groups/{id}`, `/directoryRoles/{id}` |
 | `sp-admin-roles` | `sp_admin_roles.py` | `GET /roleManagement/directory/roleAssignments?$expand=principal` |
 | `sp-graph-roles` | `sp_graph_roles.py` | `GET /servicePrincipals?$expand=appRoleAssignments` |
+| `sp-multiple-secrets` | `sp_multiple_secrets.py` | `GET /servicePrincipals?$select=id,displayName,appId,passwordCredentials,keyCredentials`, `GET /applications?$select=id,appId,displayName,passwordCredentials,keyCredentials` |
 | `legacy-auth-blocked` | `legacy_auth_blocked.py` | `GET /identity/conditionalAccess/policies` |
 | `device-code-blocked` | `device_code_blocked.py` | `GET /identity/conditionalAccess/policies` |
 | `privileged-roles-mfa` | `privileged_roles_mfa.py` | `GET /identity/conditionalAccess/policies` |

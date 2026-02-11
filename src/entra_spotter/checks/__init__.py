@@ -33,6 +33,7 @@ from entra_spotter.checks.user_consent import check_user_consent
 from entra_spotter.checks.admin_consent_workflow import check_admin_consent_workflow
 from entra_spotter.checks.sp_admin_roles import check_sp_admin_roles
 from entra_spotter.checks.sp_graph_roles import check_sp_graph_roles
+from entra_spotter.checks.sp_multiple_secrets import check_sp_multiple_secrets
 from entra_spotter.checks.legacy_auth_blocked import check_legacy_auth_blocked
 from entra_spotter.checks.device_code_blocked import check_device_code_blocked
 from entra_spotter.checks.privileged_roles_mfa import check_privileged_roles_mfa
@@ -67,6 +68,11 @@ ALL_CHECKS: list[Check] = [
         id="sp-graph-roles",
         name="Service Principal MS Graph Roles",
         run=check_sp_graph_roles,
+    ),
+    Check(
+        id="sp-multiple-secrets",
+        name="Service Principal Multiple Secrets",
+        run=check_sp_multiple_secrets,
     ),
     Check(
         id="legacy-auth-blocked",

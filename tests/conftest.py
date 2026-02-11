@@ -44,6 +44,7 @@ def mock_graph_client():
     )
     # For application lookup and owners
     client.applications.get = AsyncMock()
+    client.applications.with_url = MagicMock(return_value=MagicMock(get=AsyncMock()))
     client.applications.by_application_id = MagicMock(
         return_value=MagicMock(
             get=AsyncMock(),
@@ -189,16 +190,34 @@ class MockAppRoleAssignment:
         self.resource_display_name = resource_display_name
 
 
+class MockPasswordCredential:
+    def __init__(self, display_name: str | None = None, key_id: str | None = None):
+        self.display_name = display_name
+        self.key_id = key_id
+
+
+class MockKeyCredential:
+    def __init__(self, display_name: str | None = None, key_id: str | None = None):
+        self.display_name = display_name
+        self.key_id = key_id
+
+
 class MockServicePrincipal:
     def __init__(
         self,
         id: str,
         display_name: str,
+        app_id: str | None = None,
         app_role_assignments: list[MockAppRoleAssignment] | None = None,
+        password_credentials: list[MockPasswordCredential] | None = None,
+        key_credentials: list[MockKeyCredential] | None = None,
     ):
         self.id = id
         self.display_name = display_name
+        self.app_id = app_id
         self.app_role_assignments = app_role_assignments
+        self.password_credentials = password_credentials
+        self.key_credentials = key_credentials
 
 
 class MockServicePrincipalsResponse:
@@ -342,12 +361,22 @@ class MockAuthenticatorConfig:
 
 
 class MockApplication:
-    def __init__(self, id: str, app_id: str, display_name: str = ""):
+    def __init__(
+        self,
+        id: str,
+        app_id: str,
+        display_name: str = "",
+        password_credentials: list[MockPasswordCredential] | None = None,
+        key_credentials: list[MockKeyCredential] | None = None,
+    ):
         self.id = id
         self.app_id = app_id
         self.display_name = display_name
+        self.password_credentials = password_credentials
+        self.key_credentials = key_credentials
 
 
 class MockApplicationsResponse:
-    def __init__(self, applications: list[MockApplication]):
+    def __init__(self, applications: list[MockApplication], odata_next_link: str | None = None):
         self.value = applications
+        self.odata_next_link = odata_next_link
