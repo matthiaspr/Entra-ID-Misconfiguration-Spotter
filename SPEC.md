@@ -54,6 +54,7 @@ entra-id-spotter/
 │           ├── shadow_admins_group_owners.py
 │           ├── dynamic_group_hijack.py
 │           ├── auth_methods_number_matching.py
+│           ├── privileged_roles_license.py
 │           └── break_glass_exclusion.py
 └── tests/
     ├── conftest.py             # Shared fixtures, mocked Graph client

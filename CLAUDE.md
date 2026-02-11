@@ -73,6 +73,7 @@ Checks are explicitly registered in `checks/__init__.py` (no auto-discovery).
 | `device-code-blocked` | `device_code_blocked.py` | `GET /identity/conditionalAccess/policies` |
 | `privileged-roles-mfa` | `privileged_roles_mfa.py` | `GET /identity/conditionalAccess/policies` |
 | `global-admin-count` | `global_admin_count.py` | `GET /roleManagement/directory/roleAssignments?$filter=...&$expand=principal`, `/groups/{id}/members`, `/users/{id}` |
+| `privileged-roles-license` | `privileged_roles_license.py` | `GET /roleManagement/directory/roleAssignments?$expand=principal`, recursive `/groups/{id}/members`, `/users/{id}` |
 | `guest-invite-policy` | `guest_invite_policy.py` | `GET /policies/authorizationPolicy` (allowInvitesFrom property) |
 | `guest-access` | `guest_access.py` | `GET /policies/authorizationPolicy` (guestUserRoleId property) |
 | `privileged-roles-phishing-resistant-mfa` | `privileged_roles_phishing_resistant_mfa.py` | `GET /identity/conditionalAccess/policies` |

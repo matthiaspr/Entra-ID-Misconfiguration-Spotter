@@ -45,6 +45,7 @@ from entra_spotter.checks.shadow_admins_group_owners import check_shadow_admins_
 from entra_spotter.checks.dynamic_group_hijack import check_dynamic_group_hijack
 from entra_spotter.checks.auth_methods_number_matching import check_auth_methods_number_matching
 from entra_spotter.checks.break_glass_exclusion import check_break_glass_exclusion
+from entra_spotter.checks.privileged_roles_license import check_privileged_roles_license
 
 ALL_CHECKS: list[Check] = [
     Check(
@@ -126,5 +127,10 @@ ALL_CHECKS: list[Check] = [
         id="break-glass-exclusion",
         name="Break-Glass Account CA Exclusion",
         run=check_break_glass_exclusion,
+    ),
+    Check(
+        id="privileged-roles-license",
+        name="Entra P1/P2 for Privileged Role Members",
+        run=check_privileged_roles_license,
     ),
 ]

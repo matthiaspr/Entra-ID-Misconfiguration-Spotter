@@ -1,6 +1,6 @@
 """Tests for all checks."""
 
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -23,6 +23,7 @@ from entra_spotter.checks.shadow_admins_group_owners import check_shadow_admins_
 from entra_spotter.checks.dynamic_group_hijack import check_dynamic_group_hijack
 from entra_spotter.checks.auth_methods_number_matching import check_auth_methods_number_matching
 from entra_spotter.checks.break_glass_exclusion import check_break_glass_exclusion
+from entra_spotter.checks.privileged_roles_license import check_privileged_roles_license
 
 from conftest import (
     MockAuthorizationPolicy,
@@ -56,6 +57,7 @@ from conftest import (
     MockAuthenticatorConfig,
     MockApplication,
     MockApplicationsResponse,
+    MockAssignedPlan,
 )
 
 
@@ -1325,6 +1327,36 @@ class TestGlobalAdminCount:
         )
         return principal
 
+    def _set_group_members(
+        self,
+        mock_graph_client,
+        group_pages: dict[str, list[MockGroupMembersResponse]],
+    ) -> None:
+        """Configure per-group member pages for recursive group expansion tests."""
+        cache: dict[str, MagicMock] = {}
+
+        def _group_ref(group_id: str) -> MagicMock:
+            if group_id in cache:
+                return cache[group_id]
+
+            pages = group_pages[group_id]
+            members = MagicMock()
+            members.get = AsyncMock(return_value=pages[0])
+
+            next_refs: dict[str, MagicMock] = {}
+            for i, page in enumerate(pages[:-1]):
+                if page.odata_next_link:
+                    next_refs[page.odata_next_link] = MagicMock(
+                        get=AsyncMock(return_value=pages[i + 1])
+                    )
+
+            members.with_url = MagicMock(side_effect=lambda url: next_refs[url])
+            group_ref = MagicMock(members=members)
+            cache[group_id] = group_ref
+            return group_ref
+
+        mock_graph_client.groups.by_group_id.side_effect = _group_ref
+
     async def test_pass_with_valid_user_count(self, mock_graph_client):
         """Should pass with 2-8 cloud-only users."""
         user1 = self._create_user_principal("user-1", "Admin One")
@@ -1502,6 +1534,74 @@ class TestGlobalAdminCount:
         assert result.details["user_count"] == 2
         assert "admin1@contoso.com" in result.details["users"]
         assert "admin2@contoso.com" in result.details["users"]
+
+    async def test_nested_group_members_expanded_recursively(self, mock_graph_client):
+        """Should expand nested groups recursively to count users."""
+        root_group = self._create_group_principal("group-1", "Root Admin Group")
+        nested_group = self._create_group_principal("group-2", "Nested Admin Group")
+        nested_user = MockRoleMember("user-1", "Nested Admin", "#microsoft.graph.user")
+
+        mock_graph_client.role_management.directory.role_assignments.get.return_value = (
+            MockRoleAssignmentsResponse([
+                MockRoleAssignment(GLOBAL_ADMIN_ROLE_ID, "group-1", root_group),
+            ])
+        )
+
+        self._set_group_members(
+            mock_graph_client,
+            {
+                "group-1": [MockGroupMembersResponse([nested_group])],
+                "group-2": [MockGroupMembersResponse([nested_user])],
+            },
+        )
+
+        mock_graph_client.users.by_user_id.return_value.get.return_value = (
+            MockUser("user-1", "nested@contoso.com", on_premises_sync_enabled=False)
+        )
+
+        result = await check_global_admin_count(mock_graph_client)
+
+        assert result.status == "fail"
+        assert result.details["user_count"] == 1
+        assert "nested@contoso.com" in result.details["users"]
+
+    async def test_nested_group_cycle_handled_without_double_counting(self, mock_graph_client):
+        """Should handle nested group cycles and deduplicate users."""
+        root_group = self._create_group_principal("group-1", "Root Group")
+        group_a = self._create_group_principal("group-1", "Root Group")
+        group_b = self._create_group_principal("group-2", "Nested Group")
+        user1 = MockRoleMember("user-1", "Admin One", "#microsoft.graph.user")
+        user2 = MockRoleMember("user-2", "Admin Two", "#microsoft.graph.user")
+
+        mock_graph_client.role_management.directory.role_assignments.get.return_value = (
+            MockRoleAssignmentsResponse([
+                MockRoleAssignment(GLOBAL_ADMIN_ROLE_ID, "group-1", root_group),
+            ])
+        )
+
+        self._set_group_members(
+            mock_graph_client,
+            {
+                "group-1": [MockGroupMembersResponse([group_b, user1])],
+                "group-2": [MockGroupMembersResponse([group_a, user1, user2])],
+            },
+        )
+
+        def user_lookup(user_id):
+            users = {
+                "user-1": MockUser("user-1", "admin1@contoso.com", on_premises_sync_enabled=False),
+                "user-2": MockUser("user-2", "admin2@contoso.com", on_premises_sync_enabled=False),
+            }
+            mock = AsyncMock(return_value=users[user_id])
+            return type("Mock", (), {"get": mock})()
+
+        mock_graph_client.users.by_user_id.side_effect = user_lookup
+
+        result = await check_global_admin_count(mock_graph_client)
+
+        assert result.status == "pass"
+        assert result.details["user_count"] == 2
+        assert sorted(result.details["users"]) == ["admin1@contoso.com", "admin2@contoso.com"]
 
     async def test_pass_with_exactly_two_users(self, mock_graph_client):
         """Should pass with exactly 2 users (minimum)."""
@@ -2603,3 +2703,292 @@ class TestBreakGlassExclusion:
 
         assert result.status == "pass"
         assert result.details["enabled_policy_count"] == 1
+
+
+class TestPrivilegedRolesLicense:
+    """Tests for privileged role licensing coverage check."""
+
+    @staticmethod
+    def _create_user_principal(user_id: str, display_name: str) -> MockRoleMember:
+        return MockRoleMember(
+            id=user_id,
+            display_name=display_name,
+            odata_type="#microsoft.graph.user",
+        )
+
+    @staticmethod
+    def _create_group_principal(group_id: str, display_name: str) -> MockRoleMember:
+        return MockRoleMember(
+            id=group_id,
+            display_name=display_name,
+            odata_type="#microsoft.graph.group",
+        )
+
+    @staticmethod
+    def _create_sp_principal(sp_id: str, display_name: str) -> MockRoleMember:
+        return MockRoleMember(
+            id=sp_id,
+            display_name=display_name,
+            odata_type="#microsoft.graph.servicePrincipal",
+        )
+
+    @staticmethod
+    def _licensed_user(user_id: str, upn: str) -> MockUser:
+        return MockUser(
+            id=user_id,
+            user_principal_name=upn,
+            assigned_plans=[MockAssignedPlan("AAD_PREMIUM", "Enabled")],
+        )
+
+    @staticmethod
+    def _unlicensed_user(user_id: str, upn: str) -> MockUser:
+        return MockUser(
+            id=user_id,
+            user_principal_name=upn,
+            assigned_plans=[],
+        )
+
+    @staticmethod
+    def _set_group_members(
+        mock_graph_client,
+        group_pages: dict[str, list[MockGroupMembersResponse]],
+    ) -> None:
+        cache: dict[str, MagicMock] = {}
+
+        def _group_ref(group_id: str) -> MagicMock:
+            if group_id in cache:
+                return cache[group_id]
+
+            pages = group_pages[group_id]
+            members = MagicMock()
+            members.get = AsyncMock(return_value=pages[0])
+
+            next_refs: dict[str, MagicMock] = {}
+            for i, page in enumerate(pages[:-1]):
+                if page.odata_next_link:
+                    next_refs[page.odata_next_link] = MagicMock(
+                        get=AsyncMock(return_value=pages[i + 1])
+                    )
+
+            members.with_url = MagicMock(side_effect=lambda url: next_refs[url])
+            group_ref = MagicMock(members=members)
+            cache[group_id] = group_ref
+            return group_ref
+
+        mock_graph_client.groups.by_group_id.side_effect = _group_ref
+
+    async def test_pass_when_all_direct_users_have_premium(self, mock_graph_client):
+        """Should pass when all direct privileged role users have P1/P2."""
+        user1 = self._create_user_principal("user-1", "Admin One")
+        user2 = self._create_user_principal("user-2", "Admin Two")
+        mock_graph_client.role_management.directory.role_assignments.get.return_value = (
+            MockRoleAssignmentsResponse([
+                MockRoleAssignment(GLOBAL_ADMIN_ROLE_ID, "user-1", user1),
+                MockRoleAssignment(GLOBAL_ADMIN_ROLE_ID, "user-2", user2),
+            ])
+        )
+
+        def _lookup(user_id: str):
+            users = {
+                "user-1": self._licensed_user("user-1", "admin1@contoso.com"),
+                "user-2": self._licensed_user("user-2", "admin2@contoso.com"),
+            }
+            return MagicMock(get=AsyncMock(return_value=users[user_id]))
+
+        mock_graph_client.users.by_user_id.side_effect = _lookup
+
+        result = await check_privileged_roles_license(mock_graph_client)
+
+        assert result.status == "pass"
+        assert result.check_id == "privileged-roles-license"
+        assert result.details["evaluated_user_count"] == 2
+        assert result.details["unlicensed_user_count"] == 0
+
+    async def test_fail_when_user_missing_premium_license(self, mock_graph_client):
+        """Should fail when at least one privileged user lacks P1/P2."""
+        user1 = self._create_user_principal("user-1", "Admin One")
+        user2 = self._create_user_principal("user-2", "Admin Two")
+        mock_graph_client.role_management.directory.role_assignments.get.return_value = (
+            MockRoleAssignmentsResponse([
+                MockRoleAssignment(GLOBAL_ADMIN_ROLE_ID, "user-1", user1),
+                MockRoleAssignment(GLOBAL_ADMIN_ROLE_ID, "user-2", user2),
+            ])
+        )
+
+        def _lookup(user_id: str):
+            users = {
+                "user-1": self._licensed_user("user-1", "admin1@contoso.com"),
+                "user-2": self._unlicensed_user("user-2", "admin2@contoso.com"),
+            }
+            return MagicMock(get=AsyncMock(return_value=users[user_id]))
+
+        mock_graph_client.users.by_user_id.side_effect = _lookup
+
+        result = await check_privileged_roles_license(mock_graph_client)
+
+        assert result.status == "fail"
+        assert "do not have Entra ID P1/P2" in result.message
+        assert result.details["unlicensed_user_count"] == 1
+        assert result.details["unlicensed_users"][0]["upn"] == "admin2@contoso.com"
+
+    async def test_pass_with_recursive_nested_group_lookup(self, mock_graph_client):
+        """Should recursively expand nested groups to find licensed users."""
+        root_group = self._create_group_principal("group-a", "Privileged Group A")
+        nested_group = self._create_group_principal("group-b", "Privileged Group B")
+        nested_user = self._create_user_principal("user-1", "Nested User")
+        mock_graph_client.role_management.directory.role_assignments.get.return_value = (
+            MockRoleAssignmentsResponse([
+                MockRoleAssignment(GLOBAL_ADMIN_ROLE_ID, "group-a", root_group),
+            ])
+        )
+        self._set_group_members(
+            mock_graph_client,
+            {
+                "group-a": [MockGroupMembersResponse([nested_group])],
+                "group-b": [MockGroupMembersResponse([nested_user])],
+            },
+        )
+        mock_graph_client.users.by_user_id.return_value.get.return_value = (
+            self._licensed_user("user-1", "nested@contoso.com")
+        )
+
+        result = await check_privileged_roles_license(mock_graph_client)
+
+        assert result.status == "pass"
+        assert result.details["evaluated_user_count"] == 1
+        assert result.details["licensed_user_count"] == 1
+
+    async def test_handles_group_cycles_without_infinite_loop(self, mock_graph_client):
+        """Should handle nested group cycles safely."""
+        root_group = self._create_group_principal("group-a", "Group A")
+        group_a = self._create_group_principal("group-a", "Group A")
+        group_b = self._create_group_principal("group-b", "Group B")
+        user1 = self._create_user_principal("user-1", "Cycle User")
+        mock_graph_client.role_management.directory.role_assignments.get.return_value = (
+            MockRoleAssignmentsResponse([
+                MockRoleAssignment(GLOBAL_ADMIN_ROLE_ID, "group-a", root_group),
+            ])
+        )
+        self._set_group_members(
+            mock_graph_client,
+            {
+                "group-a": [MockGroupMembersResponse([group_b])],
+                "group-b": [MockGroupMembersResponse([group_a, user1])],
+            },
+        )
+        mock_graph_client.users.by_user_id.return_value.get.return_value = (
+            self._licensed_user("user-1", "cycle@contoso.com")
+        )
+
+        result = await check_privileged_roles_license(mock_graph_client)
+
+        assert result.status == "pass"
+        assert result.details["evaluated_user_count"] == 1
+
+    async def test_role_assignments_pagination_is_supported(self, mock_graph_client):
+        """Should handle paginated role assignments."""
+        first_page = MockRoleAssignmentsResponse(
+            [MockRoleAssignment(
+                GLOBAL_ADMIN_ROLE_ID,
+                "user-1",
+                self._create_user_principal("user-1", "Admin One"),
+            )],
+            odata_next_link="next-role-page",
+        )
+        second_page = MockRoleAssignmentsResponse(
+            [MockRoleAssignment(
+                GLOBAL_ADMIN_ROLE_ID,
+                "user-2",
+                self._create_user_principal("user-2", "Admin Two"),
+            )],
+        )
+        mock_graph_client.role_management.directory.role_assignments.get.return_value = first_page
+        mock_graph_client.role_management.directory.role_assignments.with_url.return_value.get.return_value = (
+            second_page
+        )
+
+        def _lookup(user_id: str):
+            users = {
+                "user-1": self._licensed_user("user-1", "admin1@contoso.com"),
+                "user-2": self._licensed_user("user-2", "admin2@contoso.com"),
+            }
+            return MagicMock(get=AsyncMock(return_value=users[user_id]))
+
+        mock_graph_client.users.by_user_id.side_effect = _lookup
+
+        result = await check_privileged_roles_license(mock_graph_client)
+
+        assert result.status == "pass"
+        assert result.details["evaluated_user_count"] == 2
+
+    async def test_group_members_pagination_is_supported(self, mock_graph_client):
+        """Should handle paginated group members while expanding recursively."""
+        root_group = self._create_group_principal("group-a", "Privileged Group A")
+        user1 = self._create_user_principal("user-1", "Member One")
+        user2 = self._create_user_principal("user-2", "Member Two")
+        mock_graph_client.role_management.directory.role_assignments.get.return_value = (
+            MockRoleAssignmentsResponse([
+                MockRoleAssignment(GLOBAL_ADMIN_ROLE_ID, "group-a", root_group),
+            ])
+        )
+        first_members_page = MockGroupMembersResponse([user1], odata_next_link="next-member-page")
+        second_members_page = MockGroupMembersResponse([user2])
+        self._set_group_members(
+            mock_graph_client,
+            {"group-a": [first_members_page, second_members_page]},
+        )
+
+        def _lookup(user_id: str):
+            users = {
+                "user-1": self._licensed_user("user-1", "member1@contoso.com"),
+                "user-2": self._licensed_user("user-2", "member2@contoso.com"),
+            }
+            return MagicMock(get=AsyncMock(return_value=users[user_id]))
+
+        mock_graph_client.users.by_user_id.side_effect = _lookup
+
+        result = await check_privileged_roles_license(mock_graph_client)
+
+        assert result.status == "pass"
+        assert result.details["evaluated_user_count"] == 2
+
+    async def test_warning_when_no_user_members_in_scope(self, mock_graph_client):
+        """Should warn when no user principals are available to evaluate."""
+        sp1 = self._create_sp_principal("sp-1", "Automation SP")
+        mock_graph_client.role_management.directory.role_assignments.get.return_value = (
+            MockRoleAssignmentsResponse([
+                MockRoleAssignment(GLOBAL_ADMIN_ROLE_ID, "sp-1", sp1),
+            ])
+        )
+
+        result = await check_privileged_roles_license(mock_graph_client)
+
+        assert result.status == "warning"
+        assert result.details["evaluated_user_count"] == 0
+        assert result.details["ignored_principals"][0]["type"] == "#microsoft.graph.servicePrincipal"
+
+    async def test_warning_when_user_lookup_fails(self, mock_graph_client):
+        """Should warn when user lookup errors prevent complete validation."""
+        user1 = self._create_user_principal("user-1", "Admin One")
+        user2 = self._create_user_principal("user-2", "Admin Two")
+        mock_graph_client.role_management.directory.role_assignments.get.return_value = (
+            MockRoleAssignmentsResponse([
+                MockRoleAssignment(GLOBAL_ADMIN_ROLE_ID, "user-1", user1),
+                MockRoleAssignment(GLOBAL_ADMIN_ROLE_ID, "user-2", user2),
+            ])
+        )
+
+        def _lookup(user_id: str):
+            if user_id == "user-2":
+                return MagicMock(get=AsyncMock(side_effect=Exception("Not found")))
+            return MagicMock(
+                get=AsyncMock(return_value=self._licensed_user("user-1", "admin1@contoso.com"))
+            )
+
+        mock_graph_client.users.by_user_id.side_effect = _lookup
+
+        result = await check_privileged_roles_license(mock_graph_client)
+
+        assert result.status == "warning"
+        assert result.details["unresolved_user_count"] == 1
+        assert "lookups failed" in result.message
