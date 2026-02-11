@@ -253,6 +253,7 @@ class TestCLI:
         assert "user-consent" in result.output
         assert "admin-consent-workflow" in result.output
         assert "sp-admin-roles" in result.output
+        assert "privileged-roles-license" in result.output
 
     def test_version(self, runner):
         """--version should show version."""

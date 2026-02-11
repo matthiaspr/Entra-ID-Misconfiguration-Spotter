@@ -1,5 +1,7 @@
 """Check for Global Administrator role membership."""
 
+from collections import deque
+
 from msgraph import GraphServiceClient
 from msgraph.generated.role_management.directory.role_assignments.role_assignments_request_builder import (
     RoleAssignmentsRequestBuilder,
@@ -25,7 +27,7 @@ async def check_global_admin_count(client: GraphServiceClient) -> CheckResult:
     - Any user account is synced from on-premises AD (not cloud-only)
 
     Service principals are reported separately and don't count toward the 2-8 limit.
-    Groups are expanded to count their user members.
+    Groups are recursively expanded to count nested user members.
     """
     # Get role assignments for Global Administrator
     query_params = RoleAssignmentsRequestBuilder.RoleAssignmentsRequestBuilderGetQueryParameters(
@@ -48,6 +50,40 @@ async def check_global_admin_count(client: GraphServiceClient) -> CheckResult:
     users: list[dict] = []
     service_principals: list[dict] = []
     processed_user_ids: set[str] = set()
+    group_members_cache: dict[str, list[object]] = {}
+    group_queue: deque[tuple[str, set[str]]] = deque()
+
+    async def _add_user(user_id: str) -> None:
+        """Resolve a user once and append to the users list."""
+        if user_id in processed_user_ids:
+            return
+        processed_user_ids.add(user_id)
+        user = await client.users.by_user_id(user_id).get()
+        users.append({
+            "id": user_id,
+            "upn": user.user_principal_name,
+            "is_synced": user.on_premises_sync_enabled or False,
+        })
+
+    async def _get_group_members(group_id: str) -> list[object]:
+        """Retrieve all members for a group, including paginated pages."""
+        if group_id in group_members_cache:
+            return group_members_cache[group_id]
+
+        members_request = client.groups.by_group_id(group_id).members
+        members_response = await members_request.get()
+        members: list[object] = []
+        while members_response:
+            members.extend(members_response.value or [])
+            if getattr(members_response, "odata_next_link", None):
+                members_response = await members_request.with_url(
+                    members_response.odata_next_link
+                ).get()
+            else:
+                break
+
+        group_members_cache[group_id] = members
+        return members
 
     for assignment in assignments:
         principal = assignment.principal
@@ -57,15 +93,8 @@ async def check_global_admin_count(client: GraphServiceClient) -> CheckResult:
         odata_type = getattr(principal, "odata_type", "")
 
         if odata_type == "#microsoft.graph.user":
-            if principal.id not in processed_user_ids:
-                processed_user_ids.add(principal.id)
-                # Fetch full user details to get onPremisesSyncEnabled
-                user = await client.users.by_user_id(principal.id).get()
-                users.append({
-                    "id": principal.id,
-                    "upn": user.user_principal_name,
-                    "is_synced": user.on_premises_sync_enabled or False,
-                })
+            if principal.id:
+                await _add_user(principal.id)
 
         elif odata_type == "#microsoft.graph.servicePrincipal":
             service_principals.append({
@@ -74,28 +103,28 @@ async def check_global_admin_count(client: GraphServiceClient) -> CheckResult:
             })
 
         elif odata_type == "#microsoft.graph.group":
-            # Expand group members
-            members_request = client.groups.by_group_id(principal.id).members
-            members_response = await members_request.get()
-            while members_response:
-                members = members_response.value or []
-                for member in members:
-                    member_type = getattr(member, "odata_type", "")
-                    if member_type == "#microsoft.graph.user" and member.id not in processed_user_ids:
-                        processed_user_ids.add(member.id)
-                        user = await client.users.by_user_id(member.id).get()
-                        users.append({
-                            "id": member.id,
-                            "upn": user.user_principal_name,
-                            "is_synced": user.on_premises_sync_enabled or False,
-                        })
+            if principal.id:
+                group_queue.append((principal.id, {principal.id}))
 
-                if getattr(members_response, "odata_next_link", None):
-                    members_response = await members_request.with_url(
-                        members_response.odata_next_link
-                    ).get()
-                else:
-                    break
+    # Expand group membership recursively (nested groups), with cycle protection.
+    while group_queue:
+        group_id, visited_group_ids = group_queue.popleft()
+        members = await _get_group_members(group_id)
+
+        for member in members:
+            member_id = getattr(member, "id", None)
+            if not member_id:
+                continue
+
+            member_type = getattr(member, "odata_type", "")
+            if member_type == "#microsoft.graph.user":
+                await _add_user(member_id)
+            elif member_type == "#microsoft.graph.group":
+                if member_id in visited_group_ids:
+                    continue
+                next_visited = set(visited_group_ids)
+                next_visited.add(member_id)
+                group_queue.append((member_id, next_visited))
 
     # Check for synced users
     synced_users = [u for u in users if u["is_synced"]]

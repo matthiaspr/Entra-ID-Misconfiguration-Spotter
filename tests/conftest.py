@@ -101,11 +101,19 @@ class MockUser:
         user_principal_name: str,
         display_name: str | None = None,
         on_premises_sync_enabled: bool | None = None,
+        assigned_plans: list | None = None,
     ):
         self.id = id
         self.user_principal_name = user_principal_name
         self.display_name = display_name or user_principal_name
         self.on_premises_sync_enabled = on_premises_sync_enabled
+        self.assigned_plans = assigned_plans
+
+
+class MockAssignedPlan:
+    def __init__(self, service_plan_name: str, capability_status: str):
+        self.service_plan_name = service_plan_name
+        self.capability_status = capability_status
 
 
 class MockGroup:
