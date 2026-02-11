@@ -8,6 +8,7 @@ from entra_spotter.checks.user_consent import check_user_consent
 from entra_spotter.checks.admin_consent_workflow import check_admin_consent_workflow
 from entra_spotter.checks.sp_admin_roles import check_sp_admin_roles
 from entra_spotter.checks.sp_graph_roles import check_sp_graph_roles
+from entra_spotter.checks.sp_multiple_secrets import check_sp_multiple_secrets
 from entra_spotter.checks.legacy_auth_blocked import check_legacy_auth_blocked
 from entra_spotter.checks.device_code_blocked import check_device_code_blocked
 from entra_spotter.checks.privileged_roles_mfa import check_privileged_roles_mfa, PRIVILEGED_ROLES
@@ -38,6 +39,8 @@ from conftest import (
     MockRoleAssignment,
     MockRoleAssignmentsResponse,
     MockAppRoleAssignment,
+    MockPasswordCredential,
+    MockKeyCredential,
     MockServicePrincipal,
     MockServicePrincipalsResponse,
     MockCAAuthenticationStrength,
@@ -622,6 +625,301 @@ class TestServicePrincipalGraphRoles:
         assert result.status == "warning"
         assert len(result.details["service_principals"]) == 2
         assert "2 service principal(s)" in result.message
+
+
+class TestServicePrincipalMultipleSecrets:
+    """Tests for service principal multiple secrets check."""
+
+    async def test_pass_when_no_service_principals(self, mock_graph_client):
+        """Should pass when no service principals exist."""
+        mock_graph_client.service_principals.get.return_value = MockServicePrincipalsResponse([])
+        mock_graph_client.applications.get.return_value = MockApplicationsResponse([])
+
+        result = await check_sp_multiple_secrets(mock_graph_client)
+
+        assert result.status == "pass"
+        assert result.check_id == "sp-multiple-secrets"
+
+    async def test_pass_when_every_sp_has_zero_or_one_credential(self, mock_graph_client):
+        """Should pass when each service principal has fewer than two credentials."""
+        mock_graph_client.service_principals.get.return_value = MockServicePrincipalsResponse([
+            MockServicePrincipal(
+                id="sp-1",
+                display_name="One Secret App",
+                password_credentials=[MockPasswordCredential(display_name="Secret A")],
+            ),
+            MockServicePrincipal(
+                id="sp-2",
+                display_name="One Certificate App",
+                key_credentials=[MockKeyCredential(display_name="Cert A")],
+            ),
+            MockServicePrincipal(
+                id="sp-3",
+                display_name="No Credentials App",
+                password_credentials=None,
+                key_credentials=None,
+            ),
+        ])
+        mock_graph_client.applications.get.return_value = MockApplicationsResponse([])
+
+        result = await check_sp_multiple_secrets(mock_graph_client)
+
+        assert result.status == "pass"
+
+    async def test_warning_when_sp_has_two_client_secrets(self, mock_graph_client):
+        """Should warn when one service principal has two client secrets."""
+        mock_graph_client.service_principals.get.return_value = MockServicePrincipalsResponse([
+            MockServicePrincipal(
+                id="sp-1",
+                display_name="Dual Secret App",
+                password_credentials=[
+                    MockPasswordCredential(display_name="Secret One"),
+                    MockPasswordCredential(display_name="Secret Two"),
+                ],
+                key_credentials=[],
+            )
+        ])
+        mock_graph_client.applications.get.return_value = MockApplicationsResponse([])
+
+        result = await check_sp_multiple_secrets(mock_graph_client)
+
+        assert result.status == "warning"
+        assert result.check_id == "sp-multiple-secrets"
+        assert len(result.details["service_principals"]) == 1
+        finding = result.details["service_principals"][0]
+        assert finding["display_name"] == "Dual Secret App"
+        assert finding["secret_count"] == 2
+        assert finding["secrets"][0]["type"] == "client_secret"
+        assert finding["secrets"][1]["type"] == "client_secret"
+        assert finding["secrets"][0]["source"] == "service_principal"
+        assert finding["secrets"][1]["source"] == "service_principal"
+
+    async def test_warning_when_sp_has_mixed_secret_types(self, mock_graph_client):
+        """Should warn when one service principal has secret + certificate."""
+        mock_graph_client.service_principals.get.return_value = MockServicePrincipalsResponse([
+            MockServicePrincipal(
+                id="sp-1",
+                display_name="Mixed Credential App",
+                password_credentials=[MockPasswordCredential(display_name="Client Secret")],
+                key_credentials=[MockKeyCredential(display_name="Signing Cert")],
+            )
+        ])
+        mock_graph_client.applications.get.return_value = MockApplicationsResponse([])
+
+        result = await check_sp_multiple_secrets(mock_graph_client)
+
+        assert result.status == "warning"
+        assert "1 service principal(s)" in result.message
+        finding = result.details["service_principals"][0]
+        assert finding["secret_count"] == 2
+        assert finding["secrets"][0]["name"] == "Client Secret"
+        assert finding["secrets"][0]["type"] == "client_secret"
+        assert finding["secrets"][1]["name"] == "Signing Cert"
+        assert finding["secrets"][1]["type"] == "certificate"
+        assert "Client Secret (client_secret, service_principal)" in result.details["details_summary"]
+        assert "Signing Cert (certificate, service_principal)" in result.details["details_summary"]
+
+    async def test_warning_when_app_registration_has_two_client_secrets(self, mock_graph_client):
+        """Should warn when backing app registration has two client secrets."""
+        mock_graph_client.service_principals.get.return_value = MockServicePrincipalsResponse([
+            MockServicePrincipal(
+                id="sp-1",
+                display_name="App Reg Secret App",
+                app_id="app-id-1",
+                password_credentials=[],
+                key_credentials=[],
+            )
+        ])
+        mock_graph_client.applications.get.return_value = MockApplicationsResponse([
+            MockApplication(
+                id="app-obj-1",
+                app_id="app-id-1",
+                display_name="App Registration One",
+                password_credentials=[
+                    MockPasswordCredential(display_name="App Secret A"),
+                    MockPasswordCredential(display_name="App Secret B"),
+                ],
+                key_credentials=[],
+            )
+        ])
+
+        result = await check_sp_multiple_secrets(mock_graph_client)
+
+        assert result.status == "warning"
+        finding = result.details["service_principals"][0]
+        assert finding["display_name"] == "App Reg Secret App"
+        assert finding["app_registration_display_name"] == "App Registration One"
+        assert finding["service_principal_secret_count"] == 0
+        assert finding["app_registration_secret_count"] == 2
+        assert finding["secret_count"] == 2
+        assert finding["secrets"][0]["source"] == "app_registration"
+        assert finding["secrets"][1]["source"] == "app_registration"
+
+    async def test_warning_when_sp_and_app_registration_combine_to_two(self, mock_graph_client):
+        """Should warn when SP + app registration credentials jointly meet threshold."""
+        mock_graph_client.service_principals.get.return_value = MockServicePrincipalsResponse([
+            MockServicePrincipal(
+                id="sp-1",
+                display_name="Combined App",
+                app_id="app-id-1",
+                password_credentials=[MockPasswordCredential(display_name="SP Secret")],
+                key_credentials=[],
+            )
+        ])
+        mock_graph_client.applications.get.return_value = MockApplicationsResponse([
+            MockApplication(
+                id="app-obj-1",
+                app_id="app-id-1",
+                key_credentials=[MockKeyCredential(display_name="App Cert")],
+            )
+        ])
+
+        result = await check_sp_multiple_secrets(mock_graph_client)
+
+        assert result.status == "warning"
+        finding = result.details["service_principals"][0]
+        assert finding["service_principal_secret_count"] == 1
+        assert finding["app_registration_secret_count"] == 1
+        assert finding["secret_count"] == 2
+        assert any(
+            secret["source"] == "service_principal" and secret["name"] == "SP Secret"
+            for secret in finding["secrets"]
+        )
+        assert any(
+            secret["source"] == "app_registration" and secret["name"] == "App Cert"
+            for secret in finding["secrets"]
+        )
+
+    async def test_pass_when_only_unrelated_app_registration_has_multiple_secrets(self, mock_graph_client):
+        """Should ignore credentials from app registrations that do not match SP app_id."""
+        mock_graph_client.service_principals.get.return_value = MockServicePrincipalsResponse([
+            MockServicePrincipal(
+                id="sp-1",
+                display_name="Single Secret SP",
+                app_id="app-id-1",
+                password_credentials=[MockPasswordCredential(display_name="Only SP Secret")],
+            )
+        ])
+        mock_graph_client.applications.get.return_value = MockApplicationsResponse([
+            MockApplication(
+                id="app-obj-2",
+                app_id="different-app-id",
+                password_credentials=[
+                    MockPasswordCredential(display_name="Unrelated Secret A"),
+                    MockPasswordCredential(display_name="Unrelated Secret B"),
+                ],
+            )
+        ])
+
+        result = await check_sp_multiple_secrets(mock_graph_client)
+
+        assert result.status == "pass"
+
+    async def test_warning_uses_fallback_names_when_missing_display_name(self, mock_graph_client):
+        """Should use key_id fallback names when credential display names are missing."""
+        mock_graph_client.service_principals.get.return_value = MockServicePrincipalsResponse([
+            MockServicePrincipal(
+                id="sp-1",
+                display_name="",
+                password_credentials=[MockPasswordCredential(display_name=None, key_id="secret-key-1")],
+                key_credentials=[MockKeyCredential(display_name=None, key_id="cert-key-1")],
+            )
+        ])
+        mock_graph_client.applications.get.return_value = MockApplicationsResponse([])
+
+        result = await check_sp_multiple_secrets(mock_graph_client)
+
+        assert result.status == "warning"
+        finding = result.details["service_principals"][0]
+        assert finding["display_name"] == "Unknown"
+        assert finding["secrets"][0]["name"] == "Unnamed secret (key_id=secret-key-1)"
+        assert finding["secrets"][1]["name"] == "Unnamed key (key_id=cert-key-1)"
+
+    async def test_warning_with_multiple_service_principals(self, mock_graph_client):
+        """Should include every matching service principal in details."""
+        mock_graph_client.service_principals.get.return_value = MockServicePrincipalsResponse([
+            MockServicePrincipal(
+                id="sp-1",
+                display_name="App One",
+                password_credentials=[
+                    MockPasswordCredential(display_name="Secret One"),
+                    MockPasswordCredential(display_name="Secret Two"),
+                ],
+            ),
+            MockServicePrincipal(
+                id="sp-2",
+                display_name="App Two",
+                password_credentials=[MockPasswordCredential(display_name="One Secret")],
+                key_credentials=[MockKeyCredential(display_name="One Cert")],
+            ),
+        ])
+        mock_graph_client.applications.get.return_value = MockApplicationsResponse([])
+
+        result = await check_sp_multiple_secrets(mock_graph_client)
+
+        assert result.status == "warning"
+        assert len(result.details["service_principals"]) == 2
+        assert '"App One"' in result.details["details_summary"]
+        assert '"App Two"' in result.details["details_summary"]
+
+    async def test_paginates_through_all_service_principals(self, mock_graph_client):
+        """Should evaluate service principals across paginated responses."""
+        first_page = MockServicePrincipalsResponse(
+            [
+                MockServicePrincipal(
+                    id="sp-1",
+                    display_name="Paged App One",
+                    password_credentials=[MockPasswordCredential(display_name="Secret One")],
+                )
+            ],
+            odata_next_link="next-page-url",
+        )
+        second_page = MockServicePrincipalsResponse(
+            [
+                MockServicePrincipal(
+                    id="sp-2",
+                    display_name="Paged App Two",
+                    password_credentials=[MockPasswordCredential(display_name="Secret Two")],
+                    key_credentials=[MockKeyCredential(display_name="Cert Two")],
+                )
+            ]
+        )
+        app_first_page = MockApplicationsResponse(
+            [
+                MockApplication(
+                    id="app-obj-1",
+                    app_id="app-id-1",
+                    password_credentials=[],
+                )
+            ],
+            odata_next_link="next-app-page-url",
+        )
+        app_second_page = MockApplicationsResponse(
+            [
+                MockApplication(
+                    id="app-obj-2",
+                    app_id="app-id-2",
+                    key_credentials=[MockKeyCredential(display_name="App Cert Two")],
+                )
+            ]
+        )
+
+        mock_graph_client.service_principals.get.return_value = first_page
+        mock_graph_client.service_principals.with_url = MagicMock(
+            return_value=MagicMock(get=AsyncMock(return_value=second_page))
+        )
+        mock_graph_client.applications.get.return_value = app_first_page
+        mock_graph_client.applications.with_url = MagicMock(
+            return_value=MagicMock(get=AsyncMock(return_value=app_second_page))
+        )
+
+        result = await check_sp_multiple_secrets(mock_graph_client)
+
+        assert result.status == "warning"
+        assert len(result.details["service_principals"]) == 1
+        assert result.details["service_principals"][0]["display_name"] == "Paged App Two"
+        mock_graph_client.service_principals.with_url.assert_called_once_with("next-page-url")
+        mock_graph_client.applications.with_url.assert_called_once_with("next-app-page-url")
 
 
 class TestLegacyAuthBlocked:
