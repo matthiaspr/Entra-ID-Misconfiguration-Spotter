@@ -15,14 +15,47 @@ from entra_spotter.checks import ALL_CHECKS, Check, CheckResult
 from entra_spotter.graph import create_graph_client
 
 
+def _load_dotenv(path: str = ".env") -> None:
+    """Load .env values into os.environ without overriding existing values."""
+    if not os.path.isfile(path):
+        return
+
+    try:
+        with open(path, encoding="utf-8") as env_file:
+            for raw_line in env_file:
+                line = raw_line.strip()
+                if not line or line.startswith("#"):
+                    continue
+
+                if line.startswith("export "):
+                    line = line[len("export "):].strip()
+
+                if "=" not in line:
+                    continue
+
+                key, value = line.split("=", 1)
+                key = key.strip()
+                if not key or key in os.environ:
+                    continue
+
+                value = value.strip()
+                if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+                    value = value[1:-1]
+
+                os.environ[key] = value
+    except OSError:
+        # Ignore unreadable/missing .env files and continue with existing env.
+        return
+
+
 def get_config(
     tenant_id: str | None,
     client_id: str | None,
     client_secret: str | None,
 ) -> tuple[str, str, str]:
-    """Get configuration from CLI flags or environment variables.
+    """Get configuration from CLI flags, environment variables, or .env.
 
-    CLI flags take precedence over environment variables.
+    Precedence: CLI flags > environment variables > .env file.
 
     Returns:
         Tuple of (tenant_id, client_id, client_secret)
@@ -30,6 +63,8 @@ def get_config(
     Raises:
         click.ClickException: If any required config is missing
     """
+    _load_dotenv()
+
     tenant = tenant_id or os.environ.get("AZURE_TENANT_ID")
     client = client_id or os.environ.get("AZURE_CLIENT_ID")
     secret = client_secret or os.environ.get("AZURE_CLIENT_SECRET")

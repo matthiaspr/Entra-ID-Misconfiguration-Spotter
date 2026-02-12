@@ -21,7 +21,9 @@ All `uv run` commands below should be run from this directory.
 
 ### Authentication
 
-You can provide credentials via CLI flags or environment variables (flags take precedence):
+You can provide credentials via CLI flags, shell environment variables, or a `.env` file.
+
+Precedence: `CLI flags > shell environment variables > .env`
 
 **CLI flags:**
 ```bash
@@ -33,6 +35,17 @@ uv run entra-spotter -t <tenant-id> -c <client-id> -s <client-secret>
 export AZURE_TENANT_ID="your-tenant-id"
 export AZURE_CLIENT_ID="your-client-id"
 export AZURE_CLIENT_SECRET="your-client-secret"
+
+uv run entra-spotter
+```
+
+**.env file (from current working directory):**
+```bash
+cat > .env << 'EOF'
+AZURE_TENANT_ID=your-tenant-id
+AZURE_CLIENT_ID=your-client-id
+AZURE_CLIENT_SECRET=your-client-secret
+EOF
 
 uv run entra-spotter
 ```

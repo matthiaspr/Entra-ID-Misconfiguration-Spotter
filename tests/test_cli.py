@@ -55,11 +55,98 @@ class TestGetConfig:
         assert client == "env-client"
         assert secret == "env-secret"
 
-    def test_raises_when_config_missing(self, monkeypatch):
+    def test_falls_back_to_dotenv_when_env_missing(self, monkeypatch, tmp_path):
+        """Should use .env values when CLI flags and env vars are not set."""
+        monkeypatch.delenv("AZURE_TENANT_ID", raising=False)
+        monkeypatch.delenv("AZURE_CLIENT_ID", raising=False)
+        monkeypatch.delenv("AZURE_CLIENT_SECRET", raising=False)
+        monkeypatch.chdir(tmp_path)
+
+        (tmp_path / ".env").write_text(
+            "AZURE_TENANT_ID=dotenv-tenant\n"
+            "AZURE_CLIENT_ID=dotenv-client\n"
+            "AZURE_CLIENT_SECRET=dotenv-secret\n",
+            encoding="utf-8",
+        )
+
+        tenant, client, secret = get_config(None, None, None)
+
+        assert tenant == "dotenv-tenant"
+        assert client == "dotenv-client"
+        assert secret == "dotenv-secret"
+
+    def test_shell_env_vars_override_dotenv(self, monkeypatch, tmp_path):
+        """Shell environment variables should take precedence over .env."""
+        monkeypatch.delenv("AZURE_TENANT_ID", raising=False)
+        monkeypatch.delenv("AZURE_CLIENT_ID", raising=False)
+        monkeypatch.delenv("AZURE_CLIENT_SECRET", raising=False)
+        monkeypatch.chdir(tmp_path)
+
+        (tmp_path / ".env").write_text(
+            "AZURE_TENANT_ID=dotenv-tenant\n"
+            "AZURE_CLIENT_ID=dotenv-client\n"
+            "AZURE_CLIENT_SECRET=dotenv-secret\n",
+            encoding="utf-8",
+        )
+
+        monkeypatch.setenv("AZURE_TENANT_ID", "env-tenant")
+        monkeypatch.setenv("AZURE_CLIENT_ID", "env-client")
+        monkeypatch.setenv("AZURE_CLIENT_SECRET", "env-secret")
+
+        tenant, client, secret = get_config(None, None, None)
+
+        assert tenant == "env-tenant"
+        assert client == "env-client"
+        assert secret == "env-secret"
+
+    def test_cli_flags_override_dotenv(self, monkeypatch, tmp_path):
+        """CLI flags should take precedence over .env values."""
+        monkeypatch.delenv("AZURE_TENANT_ID", raising=False)
+        monkeypatch.delenv("AZURE_CLIENT_ID", raising=False)
+        monkeypatch.delenv("AZURE_CLIENT_SECRET", raising=False)
+        monkeypatch.chdir(tmp_path)
+
+        (tmp_path / ".env").write_text(
+            "AZURE_TENANT_ID=dotenv-tenant\n"
+            "AZURE_CLIENT_ID=dotenv-client\n"
+            "AZURE_CLIENT_SECRET=dotenv-secret\n",
+            encoding="utf-8",
+        )
+
+        tenant, client, secret = get_config(
+            tenant_id="cli-tenant",
+            client_id="cli-client",
+            client_secret="cli-secret",
+        )
+
+        assert tenant == "cli-tenant"
+        assert client == "cli-client"
+        assert secret == "cli-secret"
+
+    def test_raises_when_dotenv_is_partial(self, monkeypatch, tmp_path):
+        """Should raise when .env does not include all required values."""
+        monkeypatch.delenv("AZURE_TENANT_ID", raising=False)
+        monkeypatch.delenv("AZURE_CLIENT_ID", raising=False)
+        monkeypatch.delenv("AZURE_CLIENT_SECRET", raising=False)
+        monkeypatch.chdir(tmp_path)
+
+        (tmp_path / ".env").write_text(
+            "AZURE_TENANT_ID=dotenv-tenant\n"
+            "AZURE_CLIENT_ID=dotenv-client\n",
+            encoding="utf-8",
+        )
+
+        with pytest.raises(Exception) as exc_info:
+            get_config(None, None, None)
+
+        assert "AZURE_CLIENT_SECRET" in str(exc_info.value)
+
+    def test_raises_when_config_missing(self, monkeypatch, tmp_path):
         """Should raise ClickException when required config is missing."""
         monkeypatch.delenv("AZURE_TENANT_ID", raising=False)
         monkeypatch.delenv("AZURE_CLIENT_ID", raising=False)
         monkeypatch.delenv("AZURE_CLIENT_SECRET", raising=False)
+        monkeypatch.chdir(tmp_path)
 
         with pytest.raises(Exception) as exc_info:
             get_config(None, None, None)
@@ -263,11 +350,12 @@ class TestCLI:
         assert result.exit_code == 0
         assert "0.1.0" in result.output
 
-    def test_missing_config_shows_error(self, runner, monkeypatch):
+    def test_missing_config_shows_error(self, runner, monkeypatch, tmp_path):
         """Should show error when config is missing."""
         monkeypatch.delenv("AZURE_TENANT_ID", raising=False)
         monkeypatch.delenv("AZURE_CLIENT_ID", raising=False)
         monkeypatch.delenv("AZURE_CLIENT_SECRET", raising=False)
+        monkeypatch.chdir(tmp_path)
 
         result = runner.invoke(main, [])
 
