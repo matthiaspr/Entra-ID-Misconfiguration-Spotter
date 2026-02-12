@@ -136,8 +136,7 @@ All are read-only. The tool never modifies any Entra ID configuration.
 1. Create `src/entra_spotter/checks/my_new_check.py` with a function returning `CheckResult`
 2. Register in `checks/__init__.py` by adding to `ALL_CHECKS` list
 3. Add tests in `tests/test_checks.py`
-4. Update `SPEC.md` if new MS Graph permissions are required
-5. For shared constants and helpers, reuse from `checks/_shared.py` (privileged role definitions, sensitive app roles, CA policy exclusion extraction)
+4. For shared constants and helpers, reuse from `checks/_shared.py` (privileged role definitions, sensitive app roles, CA policy exclusion extraction)
 
 ## Code Style
 

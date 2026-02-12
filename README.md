@@ -95,5 +95,3 @@ uv run pytest
 # Run with verbose output
 uv run pytest -v
 ```
-
-See [SPEC.md](SPEC.md) for the full specification.
