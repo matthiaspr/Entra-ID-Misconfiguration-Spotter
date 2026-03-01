@@ -25,6 +25,7 @@ export AZURE_CLIENT_SECRET="your-client-secret"
 3. Reuse helpers from `checks/_shared.py` where applicable
 4. Use `/roleManagement/directory/roleAssignments` for role lookups, never the legacy `/directoryRoles` API
 5. Add tests in `tests/test_checks.py` — mock `GraphServiceClient`, see `tests/conftest.py` for shared fixtures
+6. Update `README.md` for every new or changed check — ensure check ID, behavior, PASS/FAIL/WARN conditions, and recommendations match the implemented Python logic
 
 ## Avoid Over-engineering
 

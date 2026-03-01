@@ -137,7 +137,7 @@ Checks whether an enforced CA policy blocks legacy authentication protocols (`Ex
 |--------|-----------|
 | PASS | Enforced blocking policy exists with no exclusions |
 | FAIL | No matching policy exists, or policy is only in report-only mode |
-| WARN | Enforced policy exists but has user, group, or application exclusions |
+| WARN | Enforced policy exists but has user, group, role, or application exclusions |
 
 > **Recommendation:** Create or enable a CA policy blocking legacy authentication for all cloud apps.
 
@@ -175,7 +175,7 @@ Checks whether enforced CA policies require MFA for all 14 privileged directory 
 |--------|-----------|
 | PASS | All 14 roles covered by enforced policies with no exclusions |
 | FAIL | No matching policy, only report-only policies, or some roles not covered (lists uncovered roles) |
-| WARN | All roles covered but policies have user/group exclusions |
+| WARN | All roles covered but policies have user, group, role, or application exclusions |
 
 > **Recommendation:** Create or enable CA policies requiring MFA for all privileged roles.
 
@@ -187,7 +187,7 @@ Same structure as `privileged-roles-mfa`, but checks for the built-in "Phishing-
 |--------|-----------|
 | PASS | All 14 roles covered by enforced policies with no exclusions |
 | FAIL | No matching policy, only report-only policies, or some roles not covered (lists uncovered roles) |
-| WARN | All roles covered but policies have user/group exclusions |
+| WARN | All roles covered but policies have user, group, role, or application exclusions |
 
 > **Recommendation:** Create or enable CA policies requiring phishing-resistant MFA authentication strength for all privileged roles.
 
@@ -220,7 +220,7 @@ Checks whether all users in privileged roles (including nested group members) ha
 1. Global Administrator
 2. Privileged Role Administrator
 3. Privileged Authentication Administrator
-4. Partner Tier2 Support
+4. Password Administrator
 5. Security Administrator
 6. SharePoint Administrator
 7. Exchange Administrator
@@ -264,7 +264,7 @@ Checks whether dynamic membership groups assigned to privileged roles use mutabl
 
 | Result | Condition |
 |--------|-----------|
-| PASS | No dynamic groups in privileged roles, or all rules use only immutable attributes |
+| PASS | No dynamic groups in privileged roles |
 | FAIL | One or more dynamic rules reference mutable attributes (lists group and attributes) |
 | WARN | Dynamic privileged groups exist but rules don't reference known mutable attributes |
 
@@ -290,7 +290,7 @@ Checks what level of directory access guest users have. Reads the `guestUserRole
 
 | Result | Condition |
 |--------|-----------|
-| PASS | Guest access is limited (own profile and limited directory info) or restricted (own directory object only) |
+| PASS | Guest access is limited, restricted, or an unknown (non-member-equivalent) `guestUserRoleId` is configured |
 | FAIL | Guest users have the same access as member users |
 
 > **Recommendation:** Restrict guest access to limited or restricted level.
