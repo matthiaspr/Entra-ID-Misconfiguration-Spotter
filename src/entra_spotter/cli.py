@@ -11,7 +11,7 @@ import click
 from msgraph import GraphServiceClient
 
 from entra_spotter import __version__
-from entra_spotter.checks import ALL_CHECKS, Check, CheckResult
+from entra_spotter.checks import ALL_CHECKS, CATEGORIES, Check, CheckResult
 from entra_spotter.graph import create_graph_client
 
 
@@ -107,42 +107,87 @@ async def run_checks_async(
     return results
 
 
+def _status_symbol(status: str) -> str:
+    """Return a colored status symbol using click.style."""
+    symbols = {
+        "pass": click.style("[PASS]", fg="green"),
+        "fail": click.style("[FAIL]", fg="red"),
+        "warning": click.style("[WARN]", fg="yellow"),
+        "error": click.style("[ERROR]", fg="magenta"),
+    }
+    return symbols.get(status, "[????]")
+
+
+def _sort_key(pair: tuple[Check, CheckResult]) -> int:
+    """Sort fail/warn/error before pass."""
+    order = {"fail": 0, "warning": 1, "error": 2, "pass": 3}
+    return order.get(pair[1].status, 4)
+
+
 def format_text_output(results: list[tuple[Check, CheckResult]]) -> str:
-    """Format results as human-readable text."""
+    """Format results as human-readable text grouped by category."""
+    sep_width = 60
     lines = [
         f"Entra ID Misconfiguration Spotter v{__version__}",
-        "=" * 40,
+        "=" * sep_width,
         "",
     ]
 
-    status_symbols = {
-        "pass": "[PASS]",
-        "fail": "[FAIL]",
-        "warning": "[WARN]",
-        "error": "[ERROR]",
-    }
-
+    # Group results by category
+    grouped: dict[str, list[tuple[Check, CheckResult]]] = {}
     for check, result in results:
-        symbol = status_symbols.get(result.status, "[????]")
-        lines.append(f"{symbol} {check.name}")
-        lines.append(f"       {result.message}")
+        cat = check.category or ""
+        grouped.setdefault(cat, []).append((check, result))
 
-        if result.recommendation:
-            lines.append(f"       Recommendation: {result.recommendation}")
+    # Render each category in order
+    categories_to_render = [c for c in CATEGORIES if c in grouped]
+    # Append any uncategorized results
+    if "" in grouped:
+        categories_to_render.append("")
 
-        if result.details and result.status in ("fail", "warning"):
-            lines.extend(_format_details(result.details))
+    for cat in categories_to_render:
+        group = sorted(grouped[cat], key=_sort_key)
 
-
+        # Section header
+        if cat:
+            header = f"── {cat} "
+            lines.append(header + "─" * (sep_width - len(header)))
+        else:
+            lines.append("── Other " + "─" * (sep_width - 9))
         lines.append("")
 
-    # Summary
+        for check, result in group:
+            symbol = _status_symbol(result.status)
+            lines.append(f"{symbol} {check.name}")
+
+            # Compact: PASS checks show only the status line
+            if result.status == "pass":
+                continue
+
+            lines.append(f"       {result.message}")
+
+            if result.recommendation:
+                lines.append(f"       Recommendation: {result.recommendation}")
+
+            if result.details and result.status in ("fail", "warning"):
+                lines.extend(_format_details(result.details))
+
+            lines.append("")
+
+        # Per-section mini-summary
+        section_passed = sum(1 for _, r in group if r.status == "pass")
+        total = len(group)
+        mini = f"{section_passed}/{total} passed"
+        lines.append(f"{mini:>{sep_width}}")
+        lines.append("")
+
+    # Overall summary
     passed = sum(1 for _, r in results if r.status == "pass")
     failed = sum(1 for _, r in results if r.status == "fail")
     warnings = sum(1 for _, r in results if r.status == "warning")
     errors = sum(1 for _, r in results if r.status == "error")
 
-    lines.append("─" * 40)
+    lines.append("─" * sep_width)
     summary_parts = []
     if failed:
         summary_parts.append(f"{failed} failed")
@@ -214,6 +259,7 @@ def format_json_output(
             {
                 "check_id": result.check_id,
                 "name": check.name,
+                "category": check.category,
                 "status": result.status,
                 "message": result.message,
                 "recommendation": result.recommendation,
@@ -293,8 +339,19 @@ def main(
     if list_checks:
         click.echo("Available checks:")
         max_width = max(len(c.id) for c in ALL_CHECKS)
+        grouped: dict[str, list[Check]] = {}
         for check in ALL_CHECKS:
-            click.echo(f"  {check.id:<{max_width}}  {check.name}")
+            grouped.setdefault(check.category or "", []).append(check)
+        for cat in CATEGORIES:
+            if cat not in grouped:
+                continue
+            click.echo(f"\n  {cat}:")
+            for check in grouped[cat]:
+                click.echo(f"    {check.id:<{max_width}}  {check.name}")
+        if "" in grouped:
+            click.echo("\n  Other:")
+            for check in grouped[""]:
+                click.echo(f"    {check.id:<{max_width}}  {check.name}")
         return
 
     # Get and validate configuration

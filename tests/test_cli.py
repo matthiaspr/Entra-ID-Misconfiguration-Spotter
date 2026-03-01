@@ -268,6 +268,14 @@ class TestOutputFormatting:
         assert "results" in parsed
         assert "summary" in parsed
 
+    def test_json_output_includes_category(self, sample_results):
+        """JSON output should include category field in each result."""
+        output = format_json_output(sample_results, "test-tenant")
+        parsed = json.loads(output)
+
+        for result in parsed["results"]:
+            assert "category" in result
+
     def test_json_output_summary_counts(self, sample_results):
         """JSON output should have correct summary counts."""
         output = format_json_output(sample_results, "test-tenant")
@@ -333,7 +341,7 @@ class TestCLI:
     """Tests for CLI commands."""
 
     def test_list_checks(self, runner):
-        """--list-checks should list all available checks."""
+        """--list-checks should list all available checks grouped by category."""
         result = runner.invoke(main, ["--list-checks"])
 
         assert result.exit_code == 0
@@ -342,6 +350,12 @@ class TestCLI:
         assert "sp-admin-roles" in result.output
         assert "sp-multiple-secrets" in result.output
         assert "privileged-roles-license" in result.output
+        # Category headers should be present
+        assert "Application & Consent" in result.output
+        assert "Conditional Access" in result.output
+        assert "Privileged Role Security" in result.output
+        assert "Shadow Admin Detection" in result.output
+        assert "Guest & Authentication" in result.output
 
     def test_version(self, runner):
         """--version should show version."""

@@ -26,6 +26,16 @@ class Check:
     id: str
     name: str
     run: Callable[[GraphServiceClient], Awaitable[CheckResult]]
+    category: str = ""
+
+
+CATEGORIES: list[str] = [
+    "Application & Consent",
+    "Conditional Access",
+    "Privileged Role Security",
+    "Shadow Admin Detection",
+    "Guest & Authentication",
+]
 
 
 # Import checks - these will be added as we implement them
@@ -53,90 +63,108 @@ ALL_CHECKS: list[Check] = [
         id="user-consent",
         name="User Consent Settings",
         run=check_user_consent,
+        category="Application & Consent",
     ),
     Check(
         id="admin-consent-workflow",
         name="Admin Consent Workflow",
         run=check_admin_consent_workflow,
+        category="Application & Consent",
     ),
     Check(
         id="sp-admin-roles",
         name="Service Principal Admin Roles",
         run=check_sp_admin_roles,
+        category="Application & Consent",
     ),
     Check(
         id="sp-graph-roles",
         name="Service Principal MS Graph Roles",
         run=check_sp_graph_roles,
+        category="Application & Consent",
     ),
     Check(
         id="sp-multiple-secrets",
         name="Service Principal Multiple Secrets",
         run=check_sp_multiple_secrets,
+        category="Application & Consent",
     ),
     Check(
         id="legacy-auth-blocked",
         name="Legacy Authentication Blocked",
         run=check_legacy_auth_blocked,
+        category="Conditional Access",
     ),
     Check(
         id="device-code-blocked",
         name="Device Code Flow Blocked",
         run=check_device_code_blocked,
+        category="Conditional Access",
     ),
     Check(
         id="privileged-roles-mfa",
         name="MFA for Privileged Roles",
         run=check_privileged_roles_mfa,
+        category="Privileged Role Security",
     ),
     Check(
         id="global-admin-count",
         name="Global Administrator Count",
         run=check_global_admin_count,
+        category="Privileged Role Security",
     ),
     Check(
         id="guest-invite-policy",
         name="Guest Invitation Policy",
         run=check_guest_invite_policy,
+        category="Guest & Authentication",
     ),
     Check(
         id="guest-access",
         name="Guest User Access Level",
         run=check_guest_access,
+        category="Guest & Authentication",
     ),
     Check(
         id="privileged-roles-phishing-resistant-mfa",
         name="Phishing-Resistant MFA for Privileged Roles",
         run=check_privileged_roles_phishing_resistant_mfa,
+        category="Privileged Role Security",
     ),
     Check(
         id="shadow-admins-app-owners",
         name="Shadow Admins via App Ownership",
         run=check_shadow_admins_app_owners,
+        category="Shadow Admin Detection",
     ),
     Check(
         id="shadow-admins-group-owners",
         name="Shadow Admins via Group Ownership",
         run=check_shadow_admins_group_owners,
+        category="Shadow Admin Detection",
     ),
     Check(
         id="dynamic-group-hijack",
         name="Dynamic Group Privilege Escalation",
         run=check_dynamic_group_hijack,
+        category="Shadow Admin Detection",
     ),
     Check(
         id="auth-methods-number-matching",
         name="Authenticator Number Matching",
         run=check_auth_methods_number_matching,
+        category="Guest & Authentication",
     ),
     Check(
         id="break-glass-exclusion",
         name="Break-Glass Account CA Exclusion",
         run=check_break_glass_exclusion,
+        category="Conditional Access",
     ),
     Check(
         id="privileged-roles-license",
         name="Entra P1/P2 for Privileged Role Members",
         run=check_privileged_roles_license,
+        category="Privileged Role Security",
     ),
 ]
